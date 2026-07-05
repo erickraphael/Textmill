@@ -4,3 +4,4 @@
 data/parts/
 .DS_Store
 archive/
+.claude/
