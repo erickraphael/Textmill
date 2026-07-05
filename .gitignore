@@ -1,2 +1,5 @@
 .venv
 .env
+# generated split output
+data/parts/
+.DS_Store

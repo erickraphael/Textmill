@@ -1,0 +1,1186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Textmill — visual PDF splitter</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400..700;1,6..72,400..700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<style>
+  :root {
+    --bg: #121317; --panel: #1a1c21; --panel2: #23262d; --panel3: #2b2f38;
+    --text: #e9e7e2; --dim: #8f939c; --accent: #5aa2e0;
+    --border: rgba(255,255,255,.07);        /* hairline — separation, not outlines */
+    --line-strong: rgba(255,255,255,.15);   /* interactive-element borders */
+    --serif: "Newsreader", Georgia, "Times New Roman", serif;
+    --shadow-1: 0 1px 2px rgba(0,0,0,.35);
+    --shadow-2: 0 6px 18px rgba(0,0,0,.4);
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; } /* beat any explicit display rule */
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+
+  /* icons + numerals */
+  svg.ico { width: 14px; height: 14px; stroke: currentColor; fill: none;
+            stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: 0 0 auto; }
+  .num, .pnum, .ranges, #qcount, #pvnum, .fcrumbs, #docname { font-variant-numeric: tabular-nums; }
+
+  /* scrollbars + focus */
+  * { scrollbar-width: thin; scrollbar-color: #363b44 transparent; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: #363b44; border-radius: 5px;
+                              border: 2px solid transparent; background-clip: content-box; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, ::after { animation: none !important; transition: none !important; }
+  }
+
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 9px 16px; background: var(--panel); border-bottom: 1px solid var(--border);
+    flex: 0 0 auto;
+  }
+  header h1 { font-family: var(--serif); font-size: 18px; margin: 0 2px 0 0;
+              font-weight: 600; letter-spacing: -.01em; }
+  header h1 span { color: var(--accent); font-style: italic; }
+  #docname { color: var(--dim); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 34ch; }
+  header .spacer { flex: 1; }
+  label.zoom { color: var(--dim); font-size: 12px; display: flex; align-items: center; gap: 6px; }
+  .search { display: flex; align-items: center; gap: 6px; }
+  .search input, #drop .urlrow input, #basename {
+    background: var(--panel2); border: 1px solid var(--line-strong); color: var(--text);
+    border-radius: 6px; padding: 4px 8px; font-size: 13px;
+  }
+  .search input { width: 170px; }
+  .search input:focus, #drop .urlrow input:focus, #basename:focus { outline: none; border-color: var(--accent); }
+  #qcount { color: var(--dim); font-size: 12px; white-space: nowrap; }
+  .pg.hit { box-shadow: 0 0 0 3px #e0c25a; }
+  .pg.curhit { box-shadow: 0 0 0 3px #e0c25a, 0 0 0 7px rgba(224,194,90,.35); }
+
+  button {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    background: var(--panel2); color: var(--text); border: 1px solid var(--line-strong);
+    border-radius: 7px; padding: 5px 12px; font-size: 13px; cursor: pointer;
+    transition: background .12s ease, border-color .12s ease;
+  }
+  button:hover { background: var(--panel3); border-color: rgba(255,255,255,.24); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #121317; font-weight: 600; }
+  button.primary:hover { filter: brightness(1.08); }
+  button.primary:disabled, button:disabled { opacity: .4; cursor: default; filter: none; }
+  button.small { padding: 3px 9px; font-size: 12px; }
+
+  #main { flex: 1; display: flex; min-height: 0; }
+
+  /* ---- finder (From / To panes) ---- */
+  #files {
+    width: 240px; flex: 0 0 auto; background: var(--panel);
+    border-left: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0;
+  }
+  .fpane { display: flex; flex-direction: column; min-height: 0; flex: 1; border-bottom: 1px solid var(--border); }
+  .fpane.closed { flex: 0 0 auto; border-bottom: 1px solid var(--border); }
+  .fpane.closed .flist, .fpane.closed .fcrumbs { display: none; }
+  .fhead { display: flex; align-items: center; gap: 6px; padding: 8px 10px 4px; flex: 0 0 auto; }
+  .fhead b { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); }
+  .fhead .grow { flex: 1; }
+  button.chev {
+    border: none; background: none; color: var(--dim); padding: 0 2px;
+    cursor: pointer; width: 18px;
+  }
+  button.chev:hover { border: none; background: none; color: var(--text); }
+  button.chev svg { transition: transform .15s ease; }
+  .fpane.closed button.chev svg { transform: rotate(-90deg); }
+  .fcrumbs {
+    padding: 0 10px 4px; font-size: 11px; color: var(--dim);
+    display: flex; flex-wrap: wrap; gap: 2px; flex: 0 0 auto;
+  }
+  .fcrumbs a { color: var(--accent); cursor: pointer; }
+  .fcrumbs a:hover { text-decoration: underline; }
+  .flist { flex: 1; overflow-y: auto; padding: 0 6px 8px; min-height: 0; }
+  .frow {
+    display: flex; align-items: center; gap: 7px; padding: 3px 6px; border-radius: 5px;
+    cursor: pointer; font-size: 12.5px;
+  }
+  .frow:hover { background: var(--panel2); }
+  .frow.cur { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+  .frow .ic { flex: 0 0 auto; display: flex; color: var(--dim); }
+  .frow .ic svg { width: 13px; height: 13px; }
+  .frow .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fempty { color: var(--dim); font-size: 12px; padding: 6px 8px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+
+  /* ---- sidebar ---- */
+  #sidebar {
+    width: 270px; flex: 0 0 auto; background: var(--panel);
+    border-right: 1px solid var(--border); display: flex; flex-direction: column;
+  }
+  #sidebar .head { padding: 10px 12px 6px; display: flex; align-items: center; justify-content: space-between; }
+  #sidebar .head b { font-size: 13px; }
+  #parts { flex: 1; overflow-y: auto; padding: 0 8px 8px; }
+  .part {
+    border-radius: 9px; padding: 9px 11px;
+    margin-bottom: 8px; cursor: pointer; background: var(--panel2);
+    box-shadow: 0 0 0 1px var(--border), var(--shadow-1);
+    transition: box-shadow .12s ease;
+  }
+  .part:hover { box-shadow: 0 0 0 1px var(--line-strong), var(--shadow-1); }
+  .part.active { box-shadow: 0 0 0 2px var(--accent), var(--shadow-1); }
+  .part .row1 { display: flex; align-items: center; gap: 8px; }
+  .part .swatch { width: 12px; height: 12px; border-radius: 4px; flex: 0 0 auto;
+                  box-shadow: inset 0 0 0 1px rgba(255,255,255,.15); }
+  .part input.name {
+    background: transparent; border: none; color: var(--text);
+    font-family: var(--serif); font-size: 15px;
+    font-weight: 600; flex: 1; min-width: 0; outline: none; padding: 1px 2px; border-radius: 3px;
+  }
+  .part input.name:focus { background: var(--bg); }
+  .part .ranges { color: var(--dim); font-size: 12px; margin-top: 4px; word-break: break-word; }
+  .part .actions { display: flex; gap: 6px; margin-top: 6px; }
+
+  #sidebar .foot { padding: 10px 12px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+  #sidebar .foot .opts { color: var(--dim); font-size: 12px; display: flex; flex-direction: column; gap: 4px; }
+  #status { color: var(--dim); font-size: 12px; min-height: 16px; }
+
+  /* ---- page grid ---- */
+  #gridwrap { flex: 1; overflow-y: auto; padding: 16px; }
+  #drop {
+    height: 100%; display: flex; align-items: center; justify-content: center;
+    border: 1.5px dashed var(--line-strong); border-radius: 16px; color: var(--dim);
+    flex-direction: column; gap: 14px; cursor: pointer; text-align: center; padding: 32px;
+    transition: border-color .15s ease, background .15s ease;
+  }
+  #drop.hover { border-color: var(--accent); color: var(--text);
+                background: color-mix(in srgb, var(--accent) 6%, transparent); }
+  #drop .wordmark { font-family: var(--serif); font-size: 46px; line-height: 1.1;
+                    color: var(--text); letter-spacing: -.015em; }
+  #drop .wordmark span { color: var(--accent); font-style: italic; }
+  #drop .tag { font-size: 15px; max-width: 48ch; margin-top: -6px; }
+  #drop .dropline { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+  #drop .dropline svg.ico { width: 17px; height: 17px; }
+  #drop .urlrow { display: flex; gap: 6px; align-items: center; }
+  #drop .privacy { display: flex; align-items: center; gap: 6px;
+                   font-size: 12px; color: var(--dim); margin-top: 8px; }
+  #drop .privacy svg.ico { width: 12px; height: 12px; }
+  #grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(var(--thumb, 150px), 1fr)); }
+  .pg {
+    position: relative; border-radius: 8px;
+    background: var(--panel2); cursor: pointer; user-select: none; overflow: hidden;
+    box-shadow: 0 0 0 1px var(--border), var(--shadow-1);
+    transition: transform .12s ease, box-shadow .12s ease;
+  }
+  .pg:hover { transform: translateY(-2px); box-shadow: 0 0 0 1px var(--line-strong), var(--shadow-2); }
+  .pg canvas, .pg .ph { display: block; width: 100%; }
+  .pg .ph { aspect-ratio: var(--ar, 0.7); }
+  .ph {
+    background: linear-gradient(100deg, var(--panel2) 40%, var(--panel3) 50%, var(--panel2) 60%);
+    background-size: 200% 100%; animation: shimmer 1.6s linear infinite;
+  }
+  @keyframes shimmer { to { background-position: -200% 0; } }
+  .pg .num {
+    position: absolute; left: 5px; bottom: 5px; background: rgba(0,0,0,.62);
+    backdrop-filter: blur(2px);
+    color: #fff; font-size: 11px; padding: 1px 6px; border-radius: 4px;
+  }
+  .pg .tags { position: absolute; right: 5px; top: 5px; display: flex; gap: 3px; }
+  .pg .tags i { width: 10px; height: 10px; border-radius: 3px; display: block; box-shadow: 0 0 0 1px rgba(0,0,0,.5); }
+  .pg.inactive-sel { }
+  .pg.sel { box-shadow: 0 0 0 2px var(--sel-color, var(--accent)), var(--shadow-1); }
+  .pg.sel:hover { transform: none; }
+  .pg.sel::after {
+    content: "✓"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 34px; font-weight: 700; color: var(--sel-color, var(--accent));
+    background: color-mix(in srgb, var(--sel-color, var(--accent)) 18%, transparent);
+    pointer-events: none;
+    animation: checkin .14s ease;
+  }
+  @keyframes checkin { from { opacity: 0; transform: scale(1.12); } to { opacity: 1; transform: scale(1); } }
+  .hint { color: var(--dim); font-size: 12px; margin: 0 0 12px; }
+  /* ---- continuous reader ---- */
+  #preview {
+    position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.92);
+    display: flex; flex-direction: column;
+  }
+  #preview[hidden] { display: none; }
+  #pvbar {
+    flex: 0 0 auto; display: flex; gap: 12px; align-items: center;
+    padding: 7px 14px; color: #ccc; font-size: 13px;
+    background: var(--panel); border-bottom: 1px solid var(--border);
+  }
+  #pvbar .grow { flex: 1; }
+  #pvscroll { flex: 1; overflow-y: auto; overscroll-behavior: contain; }
+  .pvpage { margin: 12px auto; width: min(var(--pvw, 820px), 96vw); position: relative; }
+  .pvpage canvas, .pvpage .ph { display: block; width: 100%; box-shadow: 0 2px 18px rgba(0,0,0,.55); }
+  .pvpage canvas { background: #fff; }
+  .pvpage .ph { aspect-ratio: var(--ar, 0.7); }
+  .pvpage .pnum {
+    position: absolute; left: 6px; bottom: 6px; background: rgba(0,0,0,.65);
+    color: #fff; font-size: 11px; padding: 1px 6px; border-radius: 4px;
+  }
+  .pvpage.sel { outline: 3px solid var(--sel-color, var(--accent)); outline-offset: 2px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Text<span>mill</span></h1>
+  <span id="docname"></span>
+  <button id="partsbtn" title="Show/hide parts panel"><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>Parts</button>
+  <button id="filesbtn" title="Show/hide file browser"><svg class="ico" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>Files</button>
+  <button id="openbtn"><svg class="ico" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>Open PDF…</button>
+  <button id="urlbtn"><svg class="ico" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>Open URL…</button>
+  <input type="file" id="file" accept="application/pdf" hidden>
+  <div class="spacer"></div>
+  <div class="search" id="searchui" hidden>
+    <input id="q" type="search" placeholder="Find text…">
+    <span id="qcount"></span>
+    <button class="small" id="qprev" title="Previous match (Shift+Enter)"><svg class="ico" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></button>
+    <button class="small" id="qnext" title="Next match (Enter)"><svg class="ico" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></button>
+  </div>
+  <label class="zoom">Thumb size <input type="range" id="zoom" min="90" max="320" value="150"></label>
+</header>
+
+<div id="main">
+  <div id="sidebar">
+    <div class="head"><b>Parts</b><button class="small" id="addpart">+ Add part</button></div>
+    <div id="parts"></div>
+    <div class="foot">
+      <div class="opts">
+        <label><input type="checkbox" id="expEach" checked> One PDF per part</label>
+        <label><input type="checkbox" id="expCombined"> Combined PDF (parts in list order)</label>
+        <label style="display:flex; align-items:center; gap:6px;">Base name
+          <input id="basename" type="text" placeholder="(none — part name only)" style="flex:1; min-width:0;">
+        </label>
+      </div>
+      <div id="destrow" style="display:flex; align-items:center; gap:8px;">
+        <button class="small" id="pickdir">Output folder…</button>
+        <span id="destname" style="color:var(--dim); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Downloads (default)</span>
+      </div>
+      <button class="primary" id="export" disabled>Build PDF(s)</button>
+      <div id="status"></div>
+    </div>
+  </div>
+
+  <div id="gridwrap">
+    <div id="drop">
+      <div class="wordmark">Text<span>mill</span></div>
+      <div class="tag">Split big PDFs into named parts, visually — pick pages, build files.</div>
+      <div class="dropline"><svg class="ico" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg><b>Drop a PDF here</b>&nbsp;or click to choose a file</div>
+      <div class="urlrow" onclick="event.stopPropagation()">
+        <input id="url" type="url" placeholder="…or paste a PDF URL" style="width:280px">
+        <button class="small" id="urlgo">Load</button>
+      </div>
+      <div class="privacy"><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Everything stays on your machine — nothing is uploaded.</div>
+    </div>
+    <p class="hint" id="hint" hidden>Click a page to toggle it in the <b>active part</b>. Shift-click selects a range. Double-click opens a scrolling reader. Pages can belong to several parts.</p>
+    <div id="grid"></div>
+  </div>
+
+  <div id="files">
+    <div class="fpane" id="fromPane">
+      <div class="fhead">
+        <button class="chev" id="fromChev" title="Collapse"><svg class="ico" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+        <b>From</b>
+        <div class="grow"></div>
+        <button class="small" id="fromChoose" title="Choose source folder">Folder…</button>
+      </div>
+      <div class="fcrumbs" id="fromCrumbs"></div>
+      <div class="flist" id="fromList"><div class="fempty">No folder chosen.</div></div>
+    </div>
+    <div class="fpane" id="toPane">
+      <div class="fhead">
+        <button class="chev" id="toChev" title="Collapse"><svg class="ico" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+        <b>To</b>
+        <div class="grow"></div>
+        <button class="small" id="toSame" title="Use the folder currently open in From (asks for write access)">= From</button>
+        <button class="small" id="toChoose" title="Choose destination folder">Folder…</button>
+      </div>
+      <div class="fcrumbs" id="toCrumbs"></div>
+      <div class="flist" id="toList"><div class="fempty">No folder chosen — exports go to Downloads.</div></div>
+    </div>
+  </div>
+</div>
+
+<div id="preview" hidden>
+  <div id="pvbar">
+    <span id="pvnum"></span>
+    <button class="small" id="pvtoggle" title="Space">Toggle in active part</button>
+    <span class="grow"></span>
+    <span style="color:#888">scroll to read · ←/→ page · ⌘/Ctrl+wheel or +/− zoom · Esc close</span>
+    <button class="small" id="pvout" title="Zoom out">−</button>
+    <button class="small" id="pvin" title="Zoom in">+</button>
+    <button class="small" id="pvclose"><svg class="ico" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>Close</button>
+  </div>
+  <div id="pvscroll"></div>
+</div>
+
+<script>
+// ---- error surfacing: any failure shows in the status bar, never silent ----
+window.addEventListener("error", e => status("Error: " + e.message, true));
+window.addEventListener("unhandledrejection", e =>
+  status("Error: " + (e.reason?.message || e.reason), true));
+
+if (typeof pdfjsLib === "undefined" || typeof PDFLib === "undefined") {
+  document.addEventListener("DOMContentLoaded", () =>
+    status("Libraries failed to load from cdnjs.cloudflare.com — check your internet connection or content blocker, then reload.", true));
+  throw new Error("CDN scripts missing");
+}
+const WORKER_URL =
+  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+pdfjsLib.GlobalWorkerOptions.workerSrc = WORKER_URL; // fallback: fake worker on main thread
+// Real worker via blob shim: a cross-origin Worker(WORKER_URL) is forbidden (and file://
+// pages have no origin at all), but a same-origin blob worker may importScripts the CDN
+// worker. Parsing + rasterization then run OFF the main thread — the previous setup ran
+// everything on it (the "fake worker"), which is what made big books feel laggy.
+try {
+  const port = new Worker(URL.createObjectURL(
+    new Blob([`importScripts(${JSON.stringify(WORKER_URL)});`], { type: "text/javascript" })));
+  port.addEventListener("error", () => {       // e.g. importScripts blocked offline:
+    pdfjsLib.GlobalWorkerOptions.workerPort = null;  // retire port; next load uses fallback
+    port.terminate();
+  }, { once: true });
+  pdfjsLib.GlobalWorkerOptions.workerPort = port;
+} catch (e) { /* blob workers unavailable — workerSrc fallback handles it */ }
+
+const PALETTE = ["#4f9dde","#5cb87a","#9b7ede","#4fc2c9","#de7bb4","#c95d63","#d4b13f","#7a8fd4"];
+
+const state = {
+  bytes: null,        // original PDF bytes (for pdf-lib)
+  pdf: null,          // pdf.js document
+  name: "",
+  labels: null,       // /PageLabels strings (printed page numbers), if meaningful
+  ar: 0.7,            // aspect ratio of page 1, placeholder default
+  parts: [],          // {id, name, color, pages:Set<number 0-based>}
+  activePart: null,   // id
+  lastClicked: null,  // page index for shift-range
+  nextPartId: 1,
+  dirHandle: null,    // FileSystemDirectoryHandle for output, if picked
+};
+
+const $ = id => document.getElementById(id);
+const grid = $("grid"), partsEl = $("parts"), statusEl = $("status");
+
+/* ---------- file loading ---------- */
+$("openbtn").onclick = () => $("file").click();
+$("drop").onclick = () => $("file").click();
+$("file").onchange = e => e.target.files[0] && loadFile(e.target.files[0]);
+$("urlbtn").onclick = () => { const u = prompt("PDF URL:"); if (u) loadUrl(u); };
+$("urlgo").onclick = () => loadUrl($("url").value);
+$("url").addEventListener("keydown", e => { if (e.key === "Enter") loadUrl($("url").value); });
+["dragover","dragleave","drop"].forEach(ev =>
+  document.body.addEventListener(ev, e => {
+    e.preventDefault();
+    $("drop").classList.toggle("hover", ev === "dragover");
+    if (ev === "drop") {
+      const f = e.dataTransfer.files[0];
+      if (f && f.type === "application/pdf") loadFile(f);
+    }
+  })
+);
+
+async function loadFile(file) {
+  const buf = await file.arrayBuffer();
+  await loadBytes(new Uint8Array(buf), file.name);
+}
+
+async function loadUrl(url) {
+  url = (url || "").trim();
+  if (!url) return;
+  if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+  try {
+    status("Fetching " + url + " …");
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error("HTTP " + resp.status + " " + resp.statusText);
+    const buf = await resp.arrayBuffer();
+    const name = decodeURIComponent(
+      new URL(url).pathname.split("/").filter(Boolean).pop() || "document.pdf");
+    await loadBytes(new Uint8Array(buf), name);
+  } catch (e) {
+    console.error(e);
+    const msg = e instanceof TypeError
+      ? "Could not fetch that URL — the server likely blocks cross-origin requests (CORS). Download the PDF and open it as a file instead."
+      : "Could not fetch PDF: " + (e.message || e);
+    status(msg, true);
+  }
+}
+
+async function loadBytes(bytes, name) {
+  try {
+    status("Loading " + name + " …");
+    state.bytes = bytes;
+    // pdf.js consumes its own copy so bytes stay intact for pdf-lib
+    state.pdf = await pdfjsLib.getDocument({ data: state.bytes.slice() }).promise;
+    // Printed page numbers (what Preview shows): use /PageLabels when present AND
+    // they carry information beyond 1..n. Display-only — selection/export stay index-based.
+    state.labels = null;
+    try {
+      const labels = await state.pdf.getPageLabels();
+      if (labels && labels.some((l, i) => l && l !== String(i + 1))) state.labels = labels;
+    } catch (e) { /* no labels */ }
+    closeReader();
+    state.name = name.replace(/\.pdf$/i, "");
+    $("basename").value = state.name;
+    state.parts = []; state.activePart = null; state.lastClicked = null; state.nextPartId = 1;
+    partsAutoShown = false; // a fresh document re-arms the auto-reveal
+    $("docname").textContent = name + " · " + state.pdf.numPages + " pages";
+    $("drop").hidden = true; $("hint").hidden = false;
+    resetSearch();
+    addPart(); // start with one part
+    await buildGrid();
+    status("");
+  } catch (e) {
+    console.error(e);
+    status("Could not open PDF: " + (e.message || e), true);
+  }
+}
+
+/* ---------- thumbnail grid (lazy render) ---------- */
+let observer = null;
+
+// printed page number for display (falls back to 1-based index)
+function pageLabel(i) { return state.labels?.[i] ?? String(i + 1); }
+
+async function buildGrid() {
+  grid.innerHTML = "";
+  if (observer) observer.disconnect();
+  // aspect ratio from page 1 as placeholder default
+  const p1 = await state.pdf.getPage(1);
+  const v1 = p1.getViewport({ scale: 1 });
+  state.ar = (v1.width / v1.height).toFixed(3);
+
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < state.pdf.numPages; i++) {
+    const d = document.createElement("div");
+    d.className = "pg"; d.dataset.i = i;
+    d.style.setProperty("--ar", state.ar);
+    const title = state.labels ? ` title="PDF page ${i + 1}"` : "";
+    d.innerHTML = `<div class="ph"></div><span class="num"${title}>${esc(pageLabel(i))}</span><span class="tags"></span>`;
+    d.onclick = e => onPageClick(i, e);
+    frag.appendChild(d);
+  }
+  grid.appendChild(frag);
+  observer = new IntersectionObserver(entries => {
+    for (const en of entries) if (en.isIntersecting) {
+      observer.unobserve(en.target);
+      enqueueRender(() => renderThumb(en.target));
+    }
+  }, { root: $("gridwrap"), rootMargin: "600px" });
+  grid.querySelectorAll(".pg").forEach(el => observer.observe(el));
+  refreshGridMarks([]); // fresh tiles carry no marks; just sync color + export button
+}
+
+// Throttled render queue (shared by grid + reader): at most a few pages render
+// at once, so a fast scroll doesn't fire dozens of renders and jam the pipeline.
+const renderQueue = [];
+let activeRenders = 0;
+const MAX_CONCURRENT_RENDERS = 3;
+
+function enqueueRender(job) {
+  renderQueue.push(job);
+  pumpQueue();
+}
+function pumpQueue() {
+  while (activeRenders < MAX_CONCURRENT_RENDERS && renderQueue.length) {
+    const job = renderQueue.shift();
+    activeRenders++;
+    job().finally(() => { activeRenders--; pumpQueue(); });
+  }
+}
+
+async function renderThumb(el) {
+  const i = +el.dataset.i;
+  try {
+    const page = await state.pdf.getPage(i + 1);
+    // Cap pixel density: full devicePixelRatio (2x on Retina) quadruples the
+    // pixels rendered for barely visible sharpness gain at thumbnail size.
+    const density = Math.min(devicePixelRatio || 1, 1.5);
+    const scale = 220 / page.getViewport({ scale: 1 }).width;
+    const vp = page.getViewport({ scale: scale * density });
+    const c = document.createElement("canvas");
+    c.width = vp.width; c.height = vp.height;
+    await page.render({ canvasContext: c.getContext("2d", { alpha: false }),
+                        viewport: vp }).promise;
+    el.querySelector(".ph")?.replaceWith(c);
+    page.cleanup(); // free page resources; canvas keeps the pixels
+  } catch (e) { /* leave placeholder */ }
+}
+
+$("zoom").oninput = e => grid.style.setProperty("--thumb", e.target.value + "px");
+
+/* ---------- continuous reader (double-click a thumbnail) ----------
+   Virtualized like the grid: placeholder divs for every page, an observer renders
+   pages near the viewport and releases canvases that scroll far away, so memory
+   stays bounded on book-length PDFs. Zoom re-renders at the new resolution. */
+const pv = $("preview"), pvScroll = $("pvscroll");
+let pvIndex = null;   // page nearest viewport center
+let pvZoom = 820;     // CSS width of a page in px
+let pvGen = 0;        // bumping invalidates queued/in-flight reader renders
+let pvObs = null, pvCenterObs = null, pvZoomTimer = null;
+
+grid.addEventListener("dblclick", e => {
+  const el = e.target.closest(".pg");
+  if (el) openReader(+el.dataset.i);
+});
+
+function openReader(i) {
+  pv.hidden = false;
+  buildReader();
+  pvIndex = i;
+  pvUpdateBar();
+  requestAnimationFrame(() => pvScroll.children[i]?.scrollIntoView());
+}
+
+function closeReader() {
+  pv.hidden = true; pvGen++;
+  pvObs?.disconnect(); pvCenterObs?.disconnect();
+  pvScroll.replaceChildren();
+  pvIndex = null;
+}
+
+function buildReader() {
+  pvGen++;
+  pvObs?.disconnect(); pvCenterObs?.disconnect();
+  pvScroll.style.setProperty("--pvw", pvZoom + "px");
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < state.pdf.numPages; i++) {
+    const d = document.createElement("div");
+    d.className = "pvpage"; d.dataset.i = i;
+    d.style.setProperty("--ar", state.ar);
+    d.innerHTML = `<div class="ph"></div><span class="pnum">${esc(pageLabel(i))}</span>`;
+    frag.appendChild(d);
+  }
+  pvScroll.replaceChildren(frag);
+  pvMarkSel();
+  pvObs = new IntersectionObserver(entries => {
+    for (const en of entries) {
+      const el = en.target;
+      if (en.isIntersecting) {
+        if (!el.dataset.done && !el.dataset.busy) {
+          el.dataset.busy = "1";
+          const gen = pvGen;
+          enqueueRender(() => renderReaderPage(el, gen));
+        }
+      } else if (el.dataset.done) {   // scrolled far away — drop pixels, keep layout
+        el.querySelector("canvas")?.replaceWith(makePh());
+        delete el.dataset.done;
+      }
+    }
+  }, { root: pvScroll, rootMargin: "1200px" });
+  // whichever page crosses mid-viewport is "current" (for the bar + Space toggle)
+  pvCenterObs = new IntersectionObserver(entries => {
+    for (const en of entries) if (en.isIntersecting) {
+      pvIndex = +en.target.dataset.i; pvUpdateBar();
+    }
+  }, { root: pvScroll, rootMargin: "-49% 0px -49%" });
+  for (const el of pvScroll.children) { pvObs.observe(el); pvCenterObs.observe(el); }
+}
+
+function makePh() { const d = document.createElement("div"); d.className = "ph"; return d; }
+
+async function renderReaderPage(el, gen) {
+  if (gen !== pvGen || pv.hidden) { delete el.dataset.busy; return; }
+  const i = +el.dataset.i;
+  try {
+    const page = await state.pdf.getPage(i + 1);
+    const v1 = page.getViewport({ scale: 1 });
+    el.style.setProperty("--ar", (v1.width / v1.height).toFixed(4)); // true ratio, stable layout
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+    const cssW = Math.min(pvZoom, innerWidth * .96);
+    const vp = page.getViewport({ scale: cssW * dpr / v1.width });
+    const c = document.createElement("canvas");
+    c.width = vp.width; c.height = vp.height;
+    await page.render({ canvasContext: c.getContext("2d", { alpha: false }), viewport: vp }).promise;
+    page.cleanup();
+    if (gen === pvGen && !pv.hidden) {
+      el.querySelector(".ph")?.replaceWith(c);
+      el.dataset.done = "1";
+    }
+  } catch (e) { /* leave placeholder */ }
+  delete el.dataset.busy;
+}
+
+// After a zoom settles: drop stale canvases and re-observe so visible pages
+// re-render at the new resolution (re-observing refires the callback).
+function pvRerender() {
+  if (pv.hidden) return;
+  pvGen++;
+  for (const el of pvScroll.children) {
+    if (el.dataset.done) { el.querySelector("canvas")?.replaceWith(makePh()); delete el.dataset.done; }
+    delete el.dataset.busy;
+  }
+  pvObs.disconnect();
+  for (const el of pvScroll.children) pvObs.observe(el);
+}
+
+function pvSetZoom(z) {
+  pvZoom = Math.round(Math.max(320, Math.min(2400, z)));
+  pvScroll.style.setProperty("--pvw", pvZoom + "px"); // CSS scales instantly (soft)…
+  clearTimeout(pvZoomTimer);
+  pvZoomTimer = setTimeout(pvRerender, 300);          // …then re-render sharp
+}
+
+// mark pages of the active part; pass indices to touch only those
+function pvMarkSel(indices) {
+  const part = getActivePart();
+  if (part) pvScroll.style.setProperty("--sel-color", part.color);
+  const els = indices ? indices.map(i => pvScroll.children[i]).filter(Boolean)
+                      : [...pvScroll.children];
+  for (const el of els)
+    el.classList.toggle("sel", !!(part && part.pages.has(+el.dataset.i)));
+}
+
+function pvUpdateBar() {
+  if (pvIndex === null || !state.pdf) return;
+  const part = getActivePart();
+  const pos = `${pvIndex + 1} / ${state.pdf.numPages}`;
+  $("pvnum").textContent =
+    (state.labels ? `p. ${pageLabel(pvIndex)} · PDF ${pos}` : `Page ${pos}`) +
+    (part ? ` · ${part.pages.has(pvIndex) ? "✓ in" : "not in"} “${part.name}”` : "");
+}
+
+function pvJump(dir) {
+  if (pvIndex === null) return;
+  const j = Math.max(0, Math.min(state.pdf.numPages - 1, pvIndex + dir));
+  pvScroll.children[j]?.scrollIntoView();
+}
+
+$("pvclose").onclick = closeReader;
+$("pvin").onclick = () => pvSetZoom(pvZoom * 1.25);
+$("pvout").onclick = () => pvSetZoom(pvZoom / 1.25);
+$("pvtoggle").onclick = () => { if (pvIndex !== null) onPageClick(pvIndex, { shiftKey: false }); };
+pvScroll.addEventListener("wheel", e => {
+  if (!e.ctrlKey && !e.metaKey) return;   // plain wheel scrolls; pinch/Ctrl+wheel zooms
+  e.preventDefault();
+  pvSetZoom(pvZoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15));
+}, { passive: false });
+
+document.addEventListener("keydown", e => {
+  if (pv.hidden) return;
+  if (e.key === "Escape") closeReader();
+  else if (e.key === "ArrowRight") pvJump(1);
+  else if (e.key === "ArrowLeft") pvJump(-1);
+  else if (e.key === " " || e.key === "Enter") {
+    e.preventDefault();
+    if (pvIndex !== null) onPageClick(pvIndex, { shiftKey: false });
+  }
+  else if (e.key === "+" || e.key === "=") pvSetZoom(pvZoom * 1.25);
+  else if (e.key === "-") pvSetZoom(pvZoom / 1.25);
+  else return;
+  e.stopPropagation();
+});
+
+/* ---------- selection ---------- */
+let partsAutoShown = false; // reveal the Parts panel once, on the first page click
+function onPageClick(i, e) {
+  const part = getActivePart();
+  if (!part) return;
+  if (!partsAutoShown) {
+    if ($("sidebar").hidden) $("sidebar").hidden = false;
+    partsAutoShown = true;
+  }
+  let changed;
+  if (e.shiftKey && state.lastClicked !== null) {
+    const [a, b] = [Math.min(state.lastClicked, i), Math.max(state.lastClicked, i)];
+    const adding = !part.pages.has(i);
+    changed = [];
+    for (let k = a; k <= b; k++) { adding ? part.pages.add(k) : part.pages.delete(k); changed.push(k); }
+  } else {
+    part.pages.has(i) ? part.pages.delete(i) : part.pages.add(i);
+    changed = [i];
+  }
+  state.lastClicked = i;
+  refreshGridMarks(changed); renderParts();
+  if (!pv.hidden) { pvMarkSel(changed); pvUpdateBar(); }
+}
+
+function updateTile(i, part) {
+  const el = grid.children[i];
+  if (!el) return;
+  el.classList.toggle("sel", !!(part && part.pages.has(i)));
+  el.querySelector(".tags").innerHTML =
+    state.parts.filter(p => p.pages.has(i))
+      .map(p => `<i style="background:${p.color}" title="${esc(p.name)}"></i>`).join("");
+}
+
+// Pass the indices whose membership changed to touch only those tiles —
+// a full sweep rewrites every tile (hundreds of DOM writes on a book-length PDF).
+function refreshGridMarks(indices) {
+  const part = getActivePart();
+  // --sel-color inherits from #grid, so active-part color is one write, not n
+  if (part) grid.style.setProperty("--sel-color", part.color);
+  if (indices) for (const i of indices) updateTile(i, part);
+  else for (let i = 0; i < grid.children.length; i++) updateTile(i, part);
+  updateExportButton();
+}
+
+/* ---------- parts ---------- */
+function getActivePart() { return state.parts.find(p => p.id === state.activePart) || null; }
+
+function addPart() {
+  const prev = getActivePart();
+  const id = state.nextPartId++;
+  state.parts.push({
+    id, name: "part-" + id,
+    color: PALETTE[(id - 1) % PALETTE.length],
+    pages: new Set(),
+  });
+  state.activePart = id;
+  renderParts(); refreshGridMarks(prev ? [...prev.pages] : []);
+}
+$("addpart").onclick = addPart;
+
+function renderParts() {
+  partsEl.innerHTML = "";
+  for (const p of state.parts) {
+    const d = document.createElement("div");
+    d.className = "part" + (p.id === state.activePart ? " active" : "");
+    d.innerHTML = `
+      <div class="row1">
+        <span class="swatch" style="background:${p.color}"></span>
+        <input class="name" value="${esc(p.name)}" spellcheck="false">
+      </div>
+      <div class="ranges">${p.pages.size ? rangesText(p.pages) + " · " + p.pages.size + " pp" : "no pages yet"}</div>
+      <div class="actions">
+        <button class="small clear">Clear</button>
+        <button class="small del">Delete</button>
+      </div>`;
+    d.onclick = () => {
+      if (state.activePart === p.id) return;
+      const prev = getActivePart();
+      state.activePart = p.id;
+      renderParts();
+      refreshGridMarks([...new Set([...(prev?.pages ?? []), ...p.pages])]);
+    };
+    const nameInput = d.querySelector(".name");
+    nameInput.onclick = e => e.stopPropagation();
+    nameInput.onchange = e => { p.name = e.target.value.trim() || p.name; renderParts(); };
+    d.querySelector(".clear").onclick = e => {
+      e.stopPropagation();
+      const affected = [...p.pages];
+      p.pages.clear();
+      renderParts(); refreshGridMarks(affected);
+    };
+    d.querySelector(".del").onclick = e => {
+      e.stopPropagation();
+      const affected = new Set(p.pages);
+      state.parts = state.parts.filter(x => x.id !== p.id);
+      if (state.activePart === p.id) {
+        state.activePart = state.parts[0]?.id ?? null;
+        for (const i of getActivePart()?.pages ?? []) affected.add(i);
+      }
+      renderParts(); refreshGridMarks([...affected]);
+    };
+    partsEl.appendChild(d);
+  }
+  updateExportButton();
+}
+
+function rangesText(set) {
+  const s = [...set].sort((a, b) => a - b);
+  const out = [];
+  for (let i = 0; i < s.length; i++) {
+    let j = i;
+    while (j + 1 < s.length && s[j + 1] === s[j] + 1) j++;
+    out.push(i === j ? String(s[i] + 1) : (s[i] + 1) + "–" + (s[j] + 1));
+    i = j;
+  }
+  return out.join(", ");
+}
+
+function updateExportButton() {
+  $("export").disabled = !state.bytes || !state.parts.some(p => p.pages.size);
+}
+
+/* ---------- export ---------- */
+$("export").onclick = async () => {
+  const parts = state.parts.filter(p => p.pages.size);
+  if (!parts.length) return;
+  const each = $("expEach").checked, combined = $("expCombined").checked;
+  if (!each && !combined) { status("Pick at least one output option."); return; }
+  $("export").disabled = true;
+  try {
+    const src = await PDFLib.PDFDocument.load(state.bytes, { ignoreEncryption: true });
+    const raw = $("basename").value.trim();
+    const base = raw ? sanitize(raw) : "";
+    const named = s => (base ? `${base}-${s}` : s) + ".pdf";
+    if (each) {
+      for (const p of parts) {
+        status(`Building ${p.name} …`);
+        await savePages(src, [...p.pages].sort((a, b) => a - b), named(sanitize(p.name)));
+      }
+    }
+    if (combined) {
+      status("Building combined PDF …");
+      const idx = [];
+      for (const p of parts)
+        for (const i of [...p.pages].sort((a, b) => a - b)) idx.push(i);
+      await savePages(src, idx, named("combined"));
+    }
+    status(state.dirHandle ? `Done — saved in “${state.dirHandle.name}”.` : "Done — check your downloads.");
+  } catch (e) {
+    console.error(e);
+    status("Export failed: " + e.message);
+  }
+  $("export").disabled = false;
+};
+
+async function savePages(src, indices, filename) {
+  const out = await PDFLib.PDFDocument.create();
+  const pages = await out.copyPages(src, indices);
+  pages.forEach(pg => out.addPage(pg));
+  const bytes = await out.save();
+  if (state.dirHandle) {
+    const fh = await state.dirHandle.getFileHandle(filename, { create: true });
+    const w = await fh.createWritable();
+    await w.write(bytes); await w.close();
+  } else {
+    const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+    const a = Object.assign(document.createElement("a"), { href: url, download: filename });
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }
+}
+
+/* ---------- built-in finder: From / To panes (File System Access API) ----------
+   From = browse a granted folder tree and click PDFs to open them.
+   To   = navigate to the folder exports are written into (state.dirHandle).
+   Root handles persist in IndexedDB; after a reload one click re-grants access
+   (browsers require a user gesture for requestPermission). Chrome/Edge only. */
+const FS_OK = "showDirectoryPicker" in window;
+
+function idbOpen() {
+  return new Promise((res, rej) => {
+    const rq = indexedDB.open("textmill-fs", 1);
+    rq.onupgradeneeded = () => rq.result.createObjectStore("kv");
+    rq.onsuccess = () => res(rq.result);
+    rq.onerror = () => rej(rq.error);
+  });
+}
+async function idbSet(k, v) {
+  const db = await idbOpen();
+  return new Promise((res, rej) => {
+    const tx = db.transaction("kv", "readwrite");
+    tx.objectStore("kv").put(v, k);
+    tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+  });
+}
+async function idbGet(k) {
+  const db = await idbOpen();
+  return new Promise((res, rej) => {
+    const rq = db.transaction("kv").objectStore("kv").get(k);
+    rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error);
+  });
+}
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function makePane(key, { mode, pdfs, onDirChange }) {
+  const listEl = $(key + "List"), crumbsEl = $(key + "Crumbs"), paneEl = $(key + "Pane");
+  const pane = { key, mode, path: [], curFile: null };  // path: [{name, handle}], [0] = root
+  pane.cur = () => pane.path[pane.path.length - 1]?.handle || null;
+  const pathKey = () => pane.path.map(s => s.name).join("/");
+
+  // persist root handle + subpath names, so reloads restore the deep path
+  // (and its crumb context), not just the root
+  pane.persist = () => {
+    if (!pane.path.length) return;
+    idbSet(key, { root: pane.path[0].handle, sub: pane.path.slice(1).map(s => s.name) })
+      .catch(() => {});
+  };
+
+  pane.setRoot = async (handle, persist = true) => {
+    pane.path = [{ name: handle.name, handle }];
+    if (persist) pane.persist();
+    await pane.render();
+    onDirChange?.(pane);
+  };
+
+  // open root + walk down named subfolders (stops where the walk breaks)
+  pane.openPath = async (root, sub, persist = true) => {
+    pane.path = [{ name: root.name, handle: root }];
+    let cur = root;
+    for (const nm of sub) {
+      try { cur = await cur.getDirectoryHandle(nm); } catch (e) { break; }
+      pane.path.push({ name: nm, handle: cur });
+    }
+    if (persist) pane.persist();
+    await pane.render();
+    onDirChange?.(pane);
+  };
+
+  pane.render = async () => {
+    crumbsEl.replaceChildren(...pane.path.flatMap((seg, i) => {
+      const a = document.createElement("a");
+      a.textContent = seg.name;
+      a.onclick = () => { pane.path = pane.path.slice(0, i + 1); pane.persist(); pane.render(); onDirChange?.(pane); };
+      return i ? [document.createTextNode("›"), a] : [a];
+    }));
+    const dir = pane.cur();
+    if (!dir) return;
+    listEl.innerHTML = `<div class="fempty">Reading…</div>`;
+    const dirs = [], files = [];
+    let truncated = false;
+    try {
+      for await (const h of dir.values()) {
+        if (h.kind === "directory") dirs.push(h);
+        else if (pdfs && /\.pdf$/i.test(h.name)) files.push(h);
+        if (dirs.length + files.length > 800) { truncated = true; break; }
+      }
+    } catch (e) {
+      listEl.innerHTML = `<div class="fempty">Can’t read folder: ${esc(e.message || String(e))}</div>`;
+      return;
+    }
+    const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+    dirs.sort(byName); files.sort(byName);
+    listEl.replaceChildren();
+    for (const h of dirs) {
+      const r = row("dir", h.name);
+      r.onclick = () => { pane.path.push({ name: h.name, handle: h }); pane.persist(); pane.render(); onDirChange?.(pane); };
+      listEl.appendChild(r);
+    }
+    for (const h of files) {
+      const r = row("file", h.name);
+      if (pane.curFile === pathKey() + "/" + h.name) r.classList.add("cur");
+      r.onclick = async () => {
+        listEl.querySelectorAll(".frow.cur").forEach(el => el.classList.remove("cur"));
+        r.classList.add("cur");
+        pane.curFile = pathKey() + "/" + h.name;
+        try { await loadFile(await h.getFile()); }
+        catch (e) { status("Could not open " + h.name + ": " + (e.message || e), true); }
+      };
+      listEl.appendChild(r);
+    }
+    if (!dirs.length && !files.length)
+      listEl.innerHTML = `<div class="fempty">${pdfs ? "No PDFs or folders here." : "No subfolders."}</div>`;
+    if (truncated)
+      listEl.insertAdjacentHTML("beforeend", `<div class="fempty">Showing first 800 entries.</div>`);
+    startWatch();
+  };
+
+  /* ---- live updates: FileSystemObserver when available, else signature polling ---- */
+  let watchToken = 0;
+
+  async function dirSignature(dir) {
+    const names = [];
+    for await (const h of dir.values()) {
+      names.push(h.kind + ":" + h.name);
+      if (names.length > 900) break;
+    }
+    return names.sort().join("\n");
+  }
+
+  function startWatch() {
+    const t = ++watchToken;           // invalidates any previous watcher/loop
+    const dir = pane.cur();
+    if (!dir) return;
+    if ("FileSystemObserver" in window) {
+      try {
+        pane.observer?.disconnect();
+        pane.observer = new FileSystemObserver(() => {
+          if (t === watchToken) pane.render();   // render restarts the watch
+        });
+        pane.observer.observe(dir).catch(() => pollLoop(t, dir));
+        return;
+      } catch (e) { /* fall through to polling */ }
+    }
+    pollLoop(t, dir);
+  }
+
+  async function pollLoop(t, dir) {
+    let sig;
+    try { sig = await dirSignature(dir); } catch (e) { sig = null; }
+    while (t === watchToken) {
+      await sleep(2500);
+      if (t !== watchToken) return;
+      // don't burn cycles while nothing is visible
+      if (document.hidden || $("files").hidden || paneEl.classList.contains("closed")) continue;
+      let s2;
+      try { s2 = await dirSignature(dir); }
+      catch (e) { continue; }  // transient read failure — retry next tick
+      if (s2 !== sig) { sig = s2; if (t === watchToken) return pane.render(); }
+    }
+  }
+
+  const FICONS = {
+    dir: '<svg class="ico" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>',
+    file: '<svg class="ico" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>',
+  };
+  function row(kind, name) {
+    const d = document.createElement("div");
+    d.className = "frow";
+    d.innerHTML = `<span class="ic">${FICONS[kind]}</span><span class="nm">${esc(name)}</span>`;
+    d.title = name;
+    return d;
+  }
+
+  pane.choose = async () => {
+    try { await pane.setRoot(await showDirectoryPicker({ mode })); }
+    catch (e) { /* user cancelled */ }
+  };
+
+  // On startup: reuse stored path if permission survives, else offer one-click reconnect.
+  pane.restore = async () => {
+    const v = await idbGet(key).catch(() => null);
+    if (!v) return;
+    const root = v.root || v;            // v may be a legacy bare handle
+    const sub = v.sub || [];
+    try {
+      if (await root.queryPermission({ mode }) === "granted")
+        return pane.openPath(root, sub, false);
+    } catch (e) { return; }
+    const btn = document.createElement("button");
+    btn.className = "small";
+    btn.textContent = `Reconnect “${[root.name, ...sub].join("/")}”`;
+    btn.onclick = async () => {
+      try {
+        if (await root.requestPermission({ mode }) === "granted") pane.openPath(root, sub, false);
+      } catch (e) { status("Reconnect failed: " + (e.message || e), true); }
+    };
+    const wrap = document.createElement("div");
+    wrap.className = "fempty"; wrap.appendChild(btn);
+    listEl.replaceChildren(wrap);
+  };
+
+  return pane;
+}
+
+let fromPane = null, toPane = null;
+
+if (FS_OK) {
+  fromPane = makePane("from", { mode: "read", pdfs: true });
+  toPane = makePane("to", {
+    mode: "readwrite", pdfs: true,
+    onDirChange: p => {  // destination = folder currently open in the To pane
+      state.dirHandle = p.cur();
+      const names = p.path.map(s => s.name);
+      $("destname").textContent =
+        (names.length > 3 ? "…/" : "") + names.slice(-3).join("/") + "/";
+    },
+  });
+  $("fromChoose").onclick = () => fromPane.choose();
+  $("toChoose").onclick = () => toPane.choose();
+  // "= From": point To at the folder currently open in From. The From handle
+  // was granted read-only, so this asks the browser to upgrade it to readwrite
+  // (needs a user gesture — this click qualifies).
+  // Upgrading the From ROOT (not the leaf) keeps the whole trail writable and
+  // lets To inherit From's full crumb path, e.g. CSUN › PHIL-317 › readings.
+  $("toSame").onclick = async () => {
+    if (!fromPane.path.length) { status("Choose a From folder first."); return; }
+    const root = fromPane.path[0].handle;
+    try {
+      if (await root.requestPermission({ mode: "readwrite" }) !== "granted") {
+        status("Write access was not granted for that folder.", true); return;
+      }
+      await toPane.openPath(root, fromPane.path.slice(1).map(s => s.name));
+      status("");
+    } catch (e) { status("Could not use folder: " + (e.message || e), true); }
+  };
+  $("pickdir").onclick = () => toPane.choose();  // legacy button, same chooser
+  fromPane.restore(); toPane.restore();
+} else {
+  $("files").hidden = true;
+  $("filesbtn").hidden = true;
+  $("pickdir").disabled = true;
+  $("destname").textContent = "Downloads (folder picking needs Chrome/Edge)";
+}
+
+/* collapse controls: per-pane chevrons + whole-panel toggle, remembered locally */
+for (const k of ["from", "to"]) {
+  const paneEl = $(k + "Pane"), chev = $(k + "Chev");
+  const apply = closed => {
+    paneEl.classList.toggle("closed", closed);  // CSS rotates the chevron
+    localStorage.setItem("tm-closed-" + k, closed ? "1" : "");
+  };
+  chev.onclick = () => apply(!paneEl.classList.contains("closed"));
+  if (localStorage.getItem("tm-closed-" + k)) apply(true);
+}
+/* whole-panel toggles: Parts (left) and Files (right).
+   Both start hidden. Parts auto-appears on the first page click (see onPageClick);
+   Files is strictly manual. */
+for (const [btn, panel] of [["partsbtn", "sidebar"], ["filesbtn", "files"]]) {
+  $(btn).onclick = () => { $(panel).hidden = !$(panel).hidden; };
+  if (!$(btn).hidden) $(panel).hidden = true;
+}
+
+/* ---------- in-app text search (page-level) ---------- */
+let textIndex = null, indexing = null, hits = [], hitPos = -1;
+
+function resetSearch() {
+  textIndex = null; indexing = null; hits = []; hitPos = -1;
+  $("searchui").hidden = false; $("q").value = ""; $("qcount").textContent = "";
+}
+
+async function buildIndex() {
+  if (textIndex) return textIndex;
+  if (indexing) return indexing;
+  indexing = (async () => {
+    const n = state.pdf.numPages, idx = new Array(n);
+    for (let i = 0; i < n; i++) {
+      const page = await state.pdf.getPage(i + 1);
+      const tc = await page.getTextContent();
+      idx[i] = tc.items.map(it => it.str).join(" ").toLowerCase();
+      if (i % 25 === 0) status(`Indexing text… page ${i + 1}/${n}`);
+    }
+    textIndex = idx; indexing = null;
+    if (idx.join("").trim().length < n)
+      status("This PDF has no text layer (scanned images) — find can’t search it.", true);
+    else status("");
+    return idx;
+  })();
+  return indexing;
+}
+
+async function doSearch() {
+  const q = $("q").value.trim().toLowerCase();
+  clearHits();
+  if (!q || !state.pdf) return;
+  const idx = await buildIndex();
+  if ($("q").value.trim().toLowerCase() !== q) return; // stale — user kept typing
+  idx.forEach((t, i) => { if (t.includes(q)) hits.push(i); });
+  hits.forEach(i => grid.children[i].classList.add("hit"));
+  $("qcount").textContent = hits.length ? hits.length + " pp" : "no matches";
+  if (hits.length) gotoHit(1);
+}
+
+function clearHits() {
+  grid.querySelectorAll(".hit, .curhit").forEach(el => el.classList.remove("hit", "curhit"));
+  hits = []; hitPos = -1; $("qcount").textContent = "";
+}
+
+function gotoHit(dir) {
+  if (!hits.length) return;
+  if (hitPos >= 0) grid.children[hits[hitPos]]?.classList.remove("curhit");
+  hitPos = (hitPos + dir + hits.length) % hits.length;
+  const el = grid.children[hits[hitPos]];
+  el.classList.add("curhit");
+  el.scrollIntoView({ block: "center", behavior: "smooth" });
+  $("qcount").textContent = `${hitPos + 1}/${hits.length} pp`;
+}
+
+let qTimer;
+$("q").oninput = () => { clearTimeout(qTimer); qTimer = setTimeout(doSearch, 400); };
+$("q").onkeydown = e => {
+  if (e.key === "Enter") { e.preventDefault(); hits.length ? gotoHit(e.shiftKey ? -1 : 1) : doSearch(); }
+  if (e.key === "Escape") { $("q").value = ""; clearHits(); }
+};
+$("qnext").onclick = () => gotoHit(1);
+$("qprev").onclick = () => gotoHit(-1);
+
+/* ---------- utils ---------- */
+function status(msg, isError) {
+  statusEl.textContent = msg;
+  statusEl.style.color = isError ? "#e07070" : "";
+}
+function sanitize(s) { return s.replace(/[^\w\-]+/g, "-").replace(/^-+|-+$/g, "") || "part"; }
+function esc(s) { return s.replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+</script>
+</body>
+</html>
