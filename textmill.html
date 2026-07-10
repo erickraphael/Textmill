@@ -210,7 +210,7 @@
     transition: transform .12s ease, box-shadow .12s ease;
   }
   .pg:hover { transform: translateY(-2px); box-shadow: 0 0 0 1px var(--line-strong), var(--shadow-2); }
-  .pg canvas, .pg .ph { display: block; width: 100%; }
+  .pg canvas, .pg img, .pg .ph { display: block; width: 100%; }
   .pg .ph { aspect-ratio: var(--ar, 0.7); }
   .ph {
     background: linear-gradient(100deg, var(--panel2) 40%, var(--panel3) 50%, var(--panel2) 60%);
@@ -484,7 +484,7 @@
 </div>
 
 <script>
-const APP_VERSION = "0.9.1";
+const APP_VERSION = "0.9.2";
 console.log("Textmill v" + APP_VERSION);
 
 // ---- error surfacing: any failure shows in the status bar, never silent ----
@@ -504,9 +504,12 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = WORKER_URL; // fallback: fake worker on
 // pages have no origin at all), but a same-origin blob worker may importScripts the CDN
 // worker. Parsing + rasterization then run OFF the main thread — the previous setup ran
 // everything on it (the "fake worker"), which is what made big books feel laggy.
-try {
-  const port = new Worker(URL.createObjectURL(
+function makeWorkerPort() {   // same-origin blob worker that pulls in the CDN worker
+  return new Worker(URL.createObjectURL(
     new Blob([`importScripts(${JSON.stringify(WORKER_URL)});`], { type: "text/javascript" })));
+}
+try {
+  const port = makeWorkerPort();
   port.addEventListener("error", () => {       // e.g. importScripts blocked offline:
     pdfjsLib.GlobalWorkerOptions.workerPort = null;  // retire port; next load uses fallback
     port.terminate();
@@ -693,6 +696,9 @@ async function loadBytes(bytes, name) {
     status("Loading " + name + " …");
     dismissTip(false);   // a lingering tip from the previous document wasn't acted on
     clearTimeout(partsTipTimer);
+    // switching documents: destroy the old one first (frees its worker memory)
+    try { state.pdf?.destroy(); } catch (e) { /* already gone */ }
+    state.pdf = null;
     state.bytes = bytes;
     // pdf.js consumes its own copy so bytes stay intact for pdf-lib
     state.pdf = await pdfjsLib.getDocument({ data: state.bytes.slice() }).promise;
@@ -837,6 +843,7 @@ $("brand").onclick = async () => {
   state.parts = []; state.activePart = null; state.lastClicked = null; state.nextPartId = 1;
   partsAutoShown = false;
   if (observer) observer.disconnect();
+  freeThumbs();
   grid.innerHTML = "";
   $("docname").textContent = "";
   $("basename").value = "";
@@ -857,6 +864,7 @@ let observer = null;
 function pageLabel(i) { return state.labels?.[i] ?? String(i + 1); }
 
 async function buildGrid() {
+  freeThumbs();
   grid.innerHTML = "";
   if (observer) observer.disconnect();
   // aspect ratio from page 1 as placeholder default
@@ -875,6 +883,9 @@ async function buildGrid() {
     frag.appendChild(d);
   }
   grid.appendChild(frag);
+  // Each tile renders exactly once — the observer lets go after the first
+  // render. Thumbs persist as small JPEGs (see renderThumb), so scrolling back
+  // and forth never re-decodes a page.
   observer = new IntersectionObserver(entries => {
     for (const en of entries) if (en.isIntersecting) {
       observer.unobserve(en.target);
@@ -887,12 +898,14 @@ async function buildGrid() {
 
 // Throttled render queue (shared by grid + reader): at most a few pages render
 // at once, so a fast scroll doesn't fire dozens of renders and jam the pipeline.
+// (A multi-worker decode pool + idle backfill was tried and reverted: felt
+// gains were modest and the sustained multi-core decode spun the fan up.)
 const renderQueue = [];
 let activeRenders = 0;
 const MAX_CONCURRENT_RENDERS = 3;
 
-function enqueueRender(job) {
-  renderQueue.push(job);
+function enqueueRender(job, urgent = false) {
+  urgent ? renderQueue.unshift(job) : renderQueue.push(job);  // reader cuts the line
   pumpQueue();
 }
 function pumpQueue() {
@@ -904,6 +917,15 @@ function pumpQueue() {
 }
 
 async function renderThumb(el) {
+  // detached tile (doc switched), already rendered, or already being rendered
+  if (!el.isConnected || !state.pdf || el.dataset.busy || !el.querySelector(".ph")) return;
+  // A fast scroll enqueues every tile passed through, and on scanned books one
+  // decode can cost ~a second — so by the time a job runs, its tile may be far
+  // away again. Skip it and hand it back to the observer: it re-enqueues if
+  // the user actually returns. Only pages someone lingers near get decoded.
+  const g = $("gridwrap").getBoundingClientRect(), r = el.getBoundingClientRect();
+  if (r.bottom < g.top - 600 || r.top > g.bottom + 600) { observer?.observe(el); return; }
+  el.dataset.busy = "1";
   const i = +el.dataset.i;
   try {
     const page = await state.pdf.getPage(i + 1);
@@ -916,9 +938,29 @@ async function renderThumb(el) {
     c.width = vp.width; c.height = vp.height;
     await page.render({ canvasContext: c.getContext("2d", { alpha: false }),
                         viewport: vp }).promise;
-    el.querySelector(".ph")?.replaceWith(c);
-    page.cleanup(); // free page resources; canvas keeps the pixels
+    page.cleanup(); // free page resources
+    // Persist the thumb as a JPEG <img>, not a raw canvas: ~25 KB vs ~600 KB
+    // per page, so a book-length grid keeps every thumbnail alive with no
+    // re-render churn — each page decodes once, ever. The browser manages
+    // decoded-image memory for offscreen <img>s itself.
+    const blob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.8));
+    if (el.isConnected) {
+      if (blob) {
+        const img = new Image();
+        img.decoding = "async";
+        img.src = URL.createObjectURL(blob);
+        el.querySelector(".ph")?.replaceWith(img);
+      } else {
+        el.querySelector(".ph")?.replaceWith(c);   // encode failed — canvas fallback
+      }
+    }
   } catch (e) { /* leave placeholder */ }
+  delete el.dataset.busy;
+}
+
+// release thumb blob URLs before the grid is torn down
+function freeThumbs() {
+  for (const img of grid.querySelectorAll("img")) URL.revokeObjectURL(img.src);
 }
 
 $("zoom").oninput = e => grid.style.setProperty("--thumb", e.target.value + "px");
@@ -977,7 +1019,9 @@ function buildReader() {
         if (!el.dataset.done && !el.dataset.busy) {
           el.dataset.busy = "1";
           const gen = pvGen;
-          enqueueRender(() => renderReaderPage(el, gen));
+          // urgent: the reader is what the user is looking at right now — it
+          // must not wait behind a backlog of queued grid thumbnails
+          enqueueRender(() => renderReaderPage(el, gen), true);
         }
       } else if (el.dataset.done) {   // scrolled far away — drop pixels, keep layout
         el.querySelector("canvas")?.replaceWith(makePh());
@@ -998,6 +1042,10 @@ function makePh() { const d = document.createElement("div"); d.className = "ph";
 
 async function renderReaderPage(el, gen) {
   if (gen !== pvGen || pv.hidden) { delete el.dataset.busy; return; }
+  // same stale-job skip as the grid: don't decode a page the user already
+  // scrolled past — pvObs re-enqueues it if they come back
+  const s = pvScroll.getBoundingClientRect(), r = el.getBoundingClientRect();
+  if (r.bottom < s.top - 1200 || r.top > s.bottom + 1200) { delete el.dataset.busy; return; }
   const i = +el.dataset.i;
   try {
     const page = await state.pdf.getPage(i + 1);
@@ -1662,13 +1710,22 @@ async function buildIndex() {
   if (textIndex) return textIndex;
   if (indexing) return indexing;
   indexing = (async () => {
-    const n = state.pdf.numPages, idx = new Array(n);
-    for (let i = 0; i < n; i++) {
-      const page = await state.pdf.getPage(i + 1);
-      const tc = await page.getTextContent();
-      idx[i] = tc.items.map(it => it.str).join(" ").toLowerCase();
-      if (i % 25 === 0) status(`Indexing text… page ${i + 1}/${n}`);
-    }
+    // A few pages in flight at once (extraction runs in the pdf.js worker, so
+    // the serial version mostly waited on round-trips). `pdf` is captured so a
+    // document switched mid-index can't commit a stale/mixed index.
+    const pdf = state.pdf, n = pdf.numPages, idx = new Array(n);
+    let next = 0, done = 0;
+    const lane = async () => {
+      while (next < n) {
+        const i = next++;
+        const page = await pdf.getPage(i + 1);
+        const tc = await page.getTextContent();
+        idx[i] = tc.items.map(it => it.str).join(" ").toLowerCase();
+        if (++done % 25 === 0) status(`Indexing text… page ${done}/${n}`);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(6, n) }, lane));
+    if (state.pdf !== pdf) return idx;   // document changed — discard quietly
     textIndex = idx; indexing = null;
     if (idx.join("").trim().length < n)
       status("This PDF has no text layer (scanned images) — find can’t search it.", true);
