@@ -106,7 +106,8 @@
     color: var(--dim); margin: 16px 0 4px; font-weight: 600;
   }
   .hbody p { margin: 4px 0; color: var(--text); }
-  .hbody kbd {
+  .hbody a { color: var(--accent); }
+  .hbody kbd, .tip kbd {
     background: var(--panel2); border: 1px solid var(--line-strong); border-radius: 4px;
     padding: 0 5px; font-size: 11.5px; font-family: inherit;
   }
@@ -233,7 +234,29 @@
     animation: checkin .14s ease;
   }
   @keyframes checkin { from { opacity: 0; transform: scale(1.12); } to { opacity: 1; transform: scale(1); } }
-  .hint { color: var(--dim); font-size: 12px; margin: 0 0 12px; }
+  /* ---- contextual tips (one-at-a-time coach marks, shown once) ---- */
+  .tip {
+    position: fixed; z-index: 55; max-width: 300px;
+    background: var(--panel3); border: 1px solid var(--accent);
+    border-radius: 9px; padding: 9px 11px; font-size: 12.5px; line-height: 1.5;
+    box-shadow: var(--shadow-2); color: var(--text);
+    display: flex; gap: 8px; align-items: flex-start;
+    animation: tipin .18s ease;
+  }
+  @keyframes tipin { from { opacity: 0; transform: translateY(4px); } }
+  .tip::before {
+    content: ""; position: absolute; width: 10px; height: 10px;
+    background: var(--panel3); transform: rotate(45deg);
+    left: var(--arrow-x, 24px);
+  }
+  .tip.below::before { top: -6px; border-top: 1px solid var(--accent); border-left: 1px solid var(--accent); }
+  .tip.above::before { bottom: -6px; border-bottom: 1px solid var(--accent); border-right: 1px solid var(--accent); }
+  .tip.inside::before { display: none; }
+  .tip button.tipx {
+    flex: none; padding: 0 4px; font-size: 15px; line-height: 1.1;
+    background: transparent; border: none; color: var(--dim);
+  }
+  .tip button.tipx:hover { color: var(--text); background: transparent; }
   /* ---- continuous reader ---- */
   #preview {
     position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.92);
@@ -256,12 +279,71 @@
     color: #fff; font-size: 11px; padding: 1px 6px; border-radius: 4px;
   }
   .pvpage.sel { outline: 3px solid var(--sel-color, var(--accent)); outline-offset: 2px; }
+
+  /* part drag-to-reorder */
+  .part .dragh { cursor: grab; color: var(--dim); user-select: none;
+    letter-spacing: -2px; padding: 0 2px; flex: none; }
+  .part.dragging { opacity: .45; }
+
+  /* confirm dialog (wordmark → start screen) */
+  #confirmhome {
+    position: fixed; inset: 0; z-index: 70;
+    background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center;
+  }
+  #confirmcard {
+    background: var(--panel); border: 1px solid var(--line-strong); border-radius: 10px;
+    box-shadow: var(--shadow-2); width: min(380px, calc(100vw - 48px));
+    padding: 16px 18px; font-size: 13px; line-height: 1.5;
+  }
+  #confirmcard .btnrow { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+  #confirmcard label { display: flex; align-items: center; gap: 6px; color: var(--dim); margin-top: 10px; }
+
+  /* recent files on the start screen */
+  #recent { margin: 18px auto 0; font-size: 13px; text-align: left; width: min(420px, 90%); }
+  #recent .rhead { color: var(--dim); font-size: 11px; text-transform: uppercase;
+    letter-spacing: .08em; margin-bottom: 4px; }
+  #recent .rrow { display: flex; gap: 10px; align-items: baseline; padding: 3px 8px;
+    border-radius: 6px; cursor: pointer; }
+  #recent .rrow:hover { background: rgba(127,127,127,.15); }
+  #recent .rname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #recent .rkind { color: var(--dim); font-size: 11px; flex: none; margin-left: auto; }
+
+  /* non-Chromium notice: shown only when the folder API is missing */
+  #browserbar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 16px; font-size: 13px; color: var(--text);
+    background: rgba(90,162,224,.12); border-bottom: 1px solid var(--border);
+  }
+  #browserbar span { flex: 1; }
+  #browserbar button {
+    flex: none; padding: 2px 8px; font-size: 16px; line-height: 1;
+    background: transparent; border: 1px solid transparent; color: var(--dim);
+  }
+  #browserbar button:hover { color: var(--text); background: var(--panel2); }
+
+  /* transient callout after Chrome refuses a system folder */
+  .foldernote {
+    font-size: 12px; line-height: 1.45; color: var(--text);
+    background: rgba(90,162,224,.12); border: 1px solid var(--line-strong);
+    border-radius: 6px; padding: 8px 10px; margin: 6px 0;
+    display: flex; gap: 8px; align-items: flex-start;
+  }
+  .foldernote button {
+    flex: none; padding: 0 6px; font-size: 15px; line-height: 1.2;
+    background: transparent; border: none; color: var(--dim);
+  }
+  .foldernote button:hover { color: var(--text); background: transparent; }
 </style>
 </head>
 <body>
 
+<div id="browserbar" hidden>
+  <span>Some features (saving into a folder you choose) need <b>Chrome</b> or <b>Edge</b>. In this browser, exports save to your <b>Downloads</b> folder.</span>
+  <button id="browserbarx" title="Dismiss" aria-label="Dismiss">&times;</button>
+</div>
+
 <header>
-  <h1>Text<span>mill</span></h1>
+  <h1 id="brand" title="Back to the start screen" style="cursor:pointer;">Text<span>mill</span></h1>
   <span id="appver" title="Textmill version">v0.9</span>
   <span id="docname"></span>
   <button id="partsbtn" title="Show/hide parts panel"><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>Parts</button>
@@ -287,7 +369,7 @@
     <div class="foot">
       <div class="opts">
         <label><input type="checkbox" id="expEach" checked> One PDF per part</label>
-        <label><input type="checkbox" id="expCombined"> Combined PDF (parts in list order)</label>
+        <label><input type="checkbox" id="expCombined"> One PDF (with parts in list order)</label>
         <label style="display:flex; align-items:center; gap:6px;">Base name
           <input id="basename" type="text" placeholder="(none — part name only)" style="flex:1; min-width:0;">
         </label>
@@ -296,6 +378,8 @@
         <button class="small" id="pickdir">Output folder…</button>
         <span id="destname" style="color:var(--dim); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Downloads (default)</span>
       </div>
+      <div id="destnote" hidden></div>
+      <label id="expAskRow" title="Pick a location per file with a standard Save As dialog (overrides the output folder)" style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--dim);"><input type="checkbox" id="expAsk"> Ask where to save each file instead</label>
       <button class="primary" id="export" disabled>Build PDF(s)</button>
       <div id="status"></div>
     </div>
@@ -310,9 +394,12 @@
         <input id="url" type="url" placeholder="…or paste a PDF URL" style="width:280px">
         <button class="small" id="urlgo">Load</button>
       </div>
+      <div id="recent" hidden onclick="event.stopPropagation()">
+        <div class="rhead">Recent</div>
+        <div id="recentlist"></div>
+      </div>
       <div class="privacy"><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Everything stays on your machine — nothing is uploaded.</div>
     </div>
-    <p class="hint" id="hint" hidden>Click a page to toggle it in the <b>active part</b>. Shift-click selects a range. Double-click opens a scrolling reader. Pages can belong to several parts.</p>
     <div id="grid"></div>
   </div>
 
@@ -354,37 +441,50 @@
   <div id="pvscroll"></div>
 </div>
 
+<div id="confirmhome" hidden>
+  <div id="confirmcard">
+    <p style="margin:0">Return to the start screen? Parts aren't saved with the document.</p>
+    <label><input type="checkbox" id="confirmdont"> Don't ask again</label>
+    <div class="btnrow">
+      <button class="small" id="confirmcancel">Cancel</button>
+      <button class="small" id="confirmok">Return to start</button>
+    </div>
+  </div>
+</div>
+
 <div id="help" hidden>
   <div id="helpcard">
     <div class="hhead">
       <b>How to use Textmill</b><span class="hver" id="helpver"></span>
       <span class="grow"></span>
+      <button class="small" id="replaytips" title="Show the one-time hint bubbles again, from the start">Replay tips</button>
       <button class="small" id="helpclose">Close</button>
     </div>
     <div class="hbody">
       <h3>Open a document</h3>
-      <p>Drop a PDF anywhere on the start screen, use <b>Open PDF…</b>, or paste a link with <b>Open URL…</b>. URL loading only works when the hosting site permits cross-site access; if a link fails, download the file and drop it in instead.</p>
+      <p>Drop a PDF on the start screen, use <b>Open PDF…</b>, or paste a link with <b>Open URL…</b>. Recently opened documents are listed on the start screen — click one to reopen it.</p>
 
       <h3>Build parts</h3>
-      <p>A <i>part</i> is a named selection of pages that becomes its own PDF. Click <b>+ Add part</b>, then click pages to toggle them in the active part. <kbd>Shift</kbd>-click selects a range. A page can belong to several parts at once, and parts don't need to be contiguous.</p>
+      <p>A <i>part</i> is a named selection of pages that becomes its own PDF. Click pages to toggle them in the active part; <kbd>Shift</kbd>-click selects a range. A page can belong to several parts at once, and parts don't need to be contiguous. Drag the ⋮⋮ handle to reorder parts — the single-PDF export follows list order.</p>
 
-      <h3>Read pages up close</h3>
-      <p>Double-click a page to open the reader. <kbd>Space</kbd> toggles the page in the active part, <kbd>←</kbd>/<kbd>→</kbd> turn pages, <kbd>+</kbd>/<kbd>−</kbd> or <kbd>⌘/Ctrl</kbd>+wheel zoom, <kbd>Esc</kbd> closes.</p>
-
-      <h3>Find text</h3>
-      <p>Type in the search box, then <kbd>Enter</kbd> for the next match and <kbd>Shift</kbd>+<kbd>Enter</kbd> for the previous one. Matching pages are highlighted in the grid. Scanned pages without a text layer won't produce matches.</p>
+      <h3>Find &amp; read</h3>
+      <p>Type in the search box, then <kbd>Enter</kbd> / <kbd>Shift</kbd>+<kbd>Enter</kbd> to step through matching pages. Double-click any page to open the scrolling reader — its shortcuts are listed in the reader's own toolbar.</p>
 
       <h3>Export</h3>
-      <p>Choose <b>One PDF per part</b>, a <b>Combined PDF</b>, or both, optionally set a base name, then <b>Build PDF(s)</b>. Files go to your Downloads folder unless you pick an output folder. The <b>Files</b> panel gives you From/To folder panes for browsing sources and destinations directly.</p>
+      <p>Choose <b>One PDF per part</b>, <b>One PDF (with parts in list order)</b>, or both, optionally set a base name, then <b>Build PDF(s)</b>. Files go to Downloads unless you pick an output folder — or tick <b>Ask where to save each file instead</b> for a per-file Save As dialog. The <b>Files</b> panel gives you From/To folder panes for browsing sources and destinations directly.</p>
 
-      <h3>Requirements &amp; privacy</h3>
-      <p>Works best in <b>Chrome or Edge</b> — the folder features rely on the File System Access API, which Safari and Firefox don't support (exports fall back to Downloads there). All processing happens in your browser: no document data ever leaves your machine.</p>
+      <h3>Feedback</h3>
+      <p>Found a bug or have an idea? <a id="contact" href="#">Leave me a note</a> — this opens your mail app with a pre-addressed message.</p>
+      <p style="color:var(--dim);">Full disclosure: this app is vibe-coded — written almost entirely by Claude (Anthropic), directed and tested by a human. All the more reason to report anything odd.</p>
+
+      <h3>Reset</h3>
+      <p>Forget the saved output folder (exports go back to your <b>Downloads</b> folder), clear the list of recently opened documents, and re-arm the one-time hint bubbles. This only clears Textmill's memory — your actual files are never touched. <button class="small" id="resetdata">Clear saved data</button></p>
     </div>
   </div>
 </div>
 
 <script>
-const APP_VERSION = "0.9.0";
+const APP_VERSION = "0.9.1";
 console.log("Textmill v" + APP_VERSION);
 
 // ---- error surfacing: any failure shows in the status bar, never silent ----
@@ -435,16 +535,109 @@ const grid = $("grid"), partsEl = $("parts"), statusEl = $("status");
 /* ---------- version + help overlay ---------- */
 $("appver").textContent = "v" + APP_VERSION.replace(/\.0$/, "");
 $("helpver").textContent = "v" + APP_VERSION;
+$("contact").href = "mailto:erickraphael@gmail.com?subject=" +
+  encodeURIComponent("Textmill v" + APP_VERSION + " — a note");
 $("helpbtn").onclick = () => $("help").hidden = false;
-$("helpclose").onclick = () => $("help").hidden = true;
-$("help").addEventListener("click", e => { if (e.target === $("help")) $("help").hidden = true; });
+const closeHelp = () => { $("help").hidden = true; };
+$("helpclose").onclick = closeHelp;
+// replay the tip chain: re-arm every flag and, if a document is open, restart
+// from the first bubble — the chain's own gating fast-forwards as the user acts
+$("replaytips").onclick = () => {
+  for (const k of Object.keys(localStorage))
+    if (k.startsWith("tm-tip-")) localStorage.removeItem(k);
+  dismissTip(false);
+  closeHelp();
+  if (state.pdf) showTip("pages", $("gridwrap"), TIP_PAGES, "inside");
+};
+// reset: two-click confirm so it can't fire by accident
+(() => {
+  const btn = $("resetdata"); const label = btn.textContent; let armed = false, t = null;
+  const disarm = () => { armed = false; btn.textContent = label; clearTimeout(t); };
+  btn.onclick = async () => {
+    if (!armed) { armed = true; btn.textContent = "Click again to confirm"; t = setTimeout(disarm, 4000); return; }
+    disarm();
+    await clearSavedData();
+    btn.textContent = "Cleared";
+    setTimeout(() => { btn.textContent = label; }, 2000);
+  };
+})();
+$("help").addEventListener("click", e => { if (e.target === $("help")) closeHelp(); });
+// (no startup overlay: first-use guidance arrives as contextual tips instead)
 document.addEventListener("keydown", e => {
-  if (e.key === "Escape" && !$("help").hidden) { $("help").hidden = true; e.stopPropagation(); }
+  if (e.key === "Escape" && !$("help").hidden) { closeHelp(); e.stopPropagation(); }
 }, true);
 
+/* ---------- contextual tips ----------
+   One bubble at a time, each shown once ever (localStorage tm-tip-<id>).
+   A tip is "learned" — and its flag saved — when the user performs the action
+   it teaches or dismisses it; leaving the document without acting keeps it
+   eligible for the next document. */
+const TIP_PAGES =
+  "Click a page to add it to the <b>active part</b> — <kbd>Shift</kbd>-click selects a range. Double-click a page to read it up close.";
+let tipEl = null;
+let partsTipTimer = null;   // parts tip is debounced past the double-click window
+function dismissTip(save = true) {
+  if (!tipEl) return;
+  const id = tipEl.dataset.tip;
+  if (save) localStorage.setItem("tm-tip-" + id, "1");
+  removeEventListener("resize", tipEl._pos);
+  tipEl.remove(); tipEl = null;
+  // chain: parts → export → files, each handing off once it's gone for good
+  if (save && id === "parts") maybeExportTip();
+  if (save && id === "export" && !$("filesbtn").hidden)   // button absent without the FS API
+    showTip("files", $("filesbtn"),
+      "Last tip — <b>Files</b> opens From/To panes: browse a folder of source PDFs (From) and choose where exports are saved (To).",
+      "below");
+}
+function maybeExportTip() {
+  if (!$("export").disabled)
+    showTip("export", $("export"),
+      "<b>Build PDF(s)</b> saves each part as its own file — or tick <b>One PDF</b> above to combine them, in list order.",
+      "above");
+}
+function showTip(id, anchor, html, place = "below") {
+  if (localStorage.getItem("tm-tip-" + id) || tipEl || !anchor) return;
+  const d = document.createElement("div");
+  d.className = "tip " + place; d.dataset.tip = id;
+  d.innerHTML = `<span>${html}</span><button class="tipx" title="Dismiss" aria-label="Dismiss">&times;</button>`;
+  d.querySelector(".tipx").onclick = () => dismissTip();
+  document.body.appendChild(d);
+  const pos = () => {
+    const r = anchor.getBoundingClientRect(), b = d.getBoundingClientRect();
+    if (!r.width && !r.height) return dismissTip(false);   // anchor gone
+    const x = Math.max(8, Math.min(innerWidth - b.width - 8, r.left + r.width / 2 - b.width / 2));
+    const y = place === "above" ? r.top - b.height - 10
+            : place === "inside" ? r.top + 14
+            : r.bottom + 10;
+    d.style.left = x + "px"; d.style.top = y + "px";
+    d.style.setProperty("--arrow-x",
+      Math.max(12, Math.min(b.width - 22, r.left + r.width / 2 - x - 5)) + "px");
+  };
+  d._pos = pos; tipEl = d;
+  pos();                                    // may self-dismiss on a zero-size anchor
+  if (tipEl === d) addEventListener("resize", pos);
+}
+
 /* ---------- file loading ---------- */
-$("openbtn").onclick = () => $("file").click();
-$("drop").onclick = () => $("file").click();
+// Prefer showOpenFilePicker where available: it yields a FileSystemFileHandle,
+// which is what makes an entry in "Recent" reopenable after a reload.
+async function openPdf() {
+  if ("showOpenFilePicker" in window) {
+    try {
+      const [h] = await showOpenFilePicker({
+        types: [{ description: "PDF", accept: { "application/pdf": [".pdf"] } }],
+      });
+      await loadFile(await h.getFile(), h);
+    } catch (e) {
+      if (e.name !== "AbortError")
+        status("Could not open file: " + (e.message || e), true);
+    }
+    return;
+  }
+  $("file").click();   // fallback: plain input (no handle, so no recent entry)
+}
+$("openbtn").onclick = openPdf;
+$("drop").onclick = openPdf;
 $("file").onchange = e => e.target.files[0] && loadFile(e.target.files[0]);
 $("urlbtn").onclick = () => { const u = prompt("PDF URL:"); if (u) loadUrl(u); };
 $("urlgo").onclick = () => loadUrl($("url").value);
@@ -454,15 +647,23 @@ $("url").addEventListener("keydown", e => { if (e.key === "Enter") loadUrl($("ur
     e.preventDefault();
     $("drop").classList.toggle("hover", ev === "dragover");
     if (ev === "drop") {
+      const item = e.dataTransfer.items?.[0];   // must be read synchronously
       const f = e.dataTransfer.files[0];
-      if (f && f.type === "application/pdf") loadFile(f);
+      if (!f || f.type !== "application/pdf") return;
+      if (item?.getAsFileSystemHandle)
+        item.getAsFileSystemHandle()
+          .then(h => loadFile(f, h?.kind === "file" ? h : undefined))
+          .catch(() => loadFile(f));
+      else loadFile(f);
     }
   })
 );
 
-async function loadFile(file) {
+async function loadFile(file, handle) {
   const buf = await file.arrayBuffer();
-  await loadBytes(new Uint8Array(buf), file.name);
+  const ok = await loadBytes(new Uint8Array(buf), file.name);
+  if (ok && handle) recordRecent({ kind: "handle", name: file.name, handle });
+  return ok;
 }
 
 async function loadUrl(url) {
@@ -476,7 +677,8 @@ async function loadUrl(url) {
     const buf = await resp.arrayBuffer();
     const name = decodeURIComponent(
       new URL(url).pathname.split("/").filter(Boolean).pop() || "document.pdf");
-    await loadBytes(new Uint8Array(buf), name);
+    if (await loadBytes(new Uint8Array(buf), name))
+      recordRecent({ kind: "url", name, url });
   } catch (e) {
     console.error(e);
     const msg = e instanceof TypeError
@@ -489,6 +691,8 @@ async function loadUrl(url) {
 async function loadBytes(bytes, name) {
   try {
     status("Loading " + name + " …");
+    dismissTip(false);   // a lingering tip from the previous document wasn't acted on
+    clearTimeout(partsTipTimer);
     state.bytes = bytes;
     // pdf.js consumes its own copy so bytes stay intact for pdf-lib
     state.pdf = await pdfjsLib.getDocument({ data: state.bytes.slice() }).promise;
@@ -505,16 +709,146 @@ async function loadBytes(bytes, name) {
     state.parts = []; state.activePart = null; state.lastClicked = null; state.nextPartId = 1;
     partsAutoShown = false; // a fresh document re-arms the auto-reveal
     $("docname").textContent = name + " · " + state.pdf.numPages + " pages";
-    $("drop").hidden = true; $("hint").hidden = false;
+    $("drop").hidden = true;
     resetSearch();
     addPart(); // start with one part
     await buildGrid();
     status("");
+    showTip("pages", $("gridwrap"), TIP_PAGES, "inside");
+    return true;
   } catch (e) {
     console.error(e);
     status("Could not open PDF: " + (e.message || e), true);
+    return false;
   }
 }
+
+/* ---------- recent files (persisted in IndexedDB, like folder roots) ----------
+   Handle entries reopen with one click (the click is the user gesture Chrome
+   needs to re-grant read permission). URL entries just re-fetch. Browsers
+   without the File System Access API only get URL entries. */
+async function getRecents() { return (await idbGet("recents").catch(() => null)) || []; }
+
+async function recordRecent(entry) {
+  entry.when = Date.now();
+  let list = await getRecents();
+  const keep = [];
+  for (const e of list) {
+    if (e.kind === "url" && entry.kind === "url" && e.url === entry.url) continue;
+    if (e.kind === "handle" && entry.kind === "handle") {
+      try { if (await e.handle.isSameEntry(entry.handle)) continue; }
+      catch (err) { /* can't compare — keep it */ }
+    }
+    keep.push(e);
+  }
+  list = [entry, ...keep].slice(0, 8);
+  await idbSet("recents", list).catch(() => {});
+  renderRecents(list);
+}
+
+async function forgetRecent(i) {
+  const list = await getRecents();
+  list.splice(i, 1);
+  await idbSet("recents", list).catch(() => {});
+  renderRecents(list);
+}
+
+// Reset saved state: drop the remembered output folder (exports revert to the
+// Downloads default) and forget the recent-files list. Leaves user files alone.
+async function clearSavedData() {
+  await Promise.all(["from", "to", "recents"].map(k => idbDel(k).catch(() => {})));
+  // re-arm the one-time hint bubbles (a reset signals "treat me as new")
+  for (const k of Object.keys(localStorage))
+    if (k.startsWith("tm-tip-")) localStorage.removeItem(k);
+  dismissTip(false);
+  // in-memory destination back to the Downloads default
+  state.dirHandle = null;
+  destFolderText = "Downloads (default)";
+  renderDest();
+  // reset the From/To panes' in-memory path + visible state (Chrome/Edge only)
+  for (const p of [fromPane, toPane]) {
+    if (!p) continue;
+    p.path = [];
+    $(p.key + "Crumbs").replaceChildren();
+    $(p.key + "List").innerHTML = p.key === "to"
+      ? '<div class="fempty">No folder chosen — exports go to Downloads.</div>'
+      : '<div class="fempty">No folder chosen.</div>';
+    clearFolderNote(p.noteEl);
+  }
+  renderRecents([]);
+}
+
+async function renderRecents(list) {
+  list = list || await getRecents();
+  if (!("showOpenFilePicker" in window)) list = list.filter(e => e.kind === "url");
+  $("recent").hidden = !list.length;
+  $("recentlist").replaceChildren(...list.map((e, i) => {
+    const r = document.createElement("div");
+    r.className = "rrow";
+    r.title = e.kind === "url" ? e.url : e.name;
+    r.innerHTML = `<span class="rname">${esc(e.name)}</span>` +
+                  `<span class="rkind">${e.kind === "url" ? "URL" : "file"}</span>`;
+    r.onclick = () => openRecent(e, i);
+    return r;
+  }));
+}
+
+async function openRecent(e, i) {
+  if (e.kind === "url") { loadUrl(e.url); return; }
+  try {
+    if (await e.handle.queryPermission({ mode: "read" }) !== "granted" &&
+        await e.handle.requestPermission({ mode: "read" }) !== "granted") {
+      status("Read permission wasn't granted.", true); return;
+    }
+    await loadFile(await e.handle.getFile(), e.handle);
+  } catch (err) {
+    status(`Couldn't reopen “${e.name}” — it may have moved or been deleted.`, true);
+    forgetRecent(i);
+  }
+}
+renderRecents();
+
+/* ---------- back to start: click the wordmark ---------- */
+function confirmHome() {
+  if (localStorage.getItem("tm-home-noconfirm")) return Promise.resolve(true);
+  return new Promise(res => {
+    $("confirmhome").hidden = false;
+    const done = ok => {
+      $("confirmhome").hidden = true;
+      // only persist the opt-out on an actual confirm — ticking then
+      // cancelling shouldn't disable the dialog
+      if (ok && $("confirmdont").checked)
+        localStorage.setItem("tm-home-noconfirm", "1");
+      res(ok);
+    };
+    $("confirmok").onclick = () => done(true);
+    $("confirmcancel").onclick = () => done(false);
+    $("confirmhome").onclick = e => { if (e.target === $("confirmhome")) done(false); };
+  });
+}
+
+$("brand").onclick = async () => {
+  if (!state.bytes && !state.pdf) return;   // already at the start screen
+  if (state.parts.some(p => p.pages.size) && !(await confirmHome()))
+    return;
+  closeReader();
+  try { state.pdf?.destroy(); } catch (e) { /* already gone */ }
+  state.pdf = null; state.bytes = null; state.labels = null; state.name = "";
+  state.parts = []; state.activePart = null; state.lastClicked = null; state.nextPartId = 1;
+  partsAutoShown = false;
+  if (observer) observer.disconnect();
+  grid.innerHTML = "";
+  $("docname").textContent = "";
+  $("basename").value = "";
+  $("drop").hidden = false;
+  dismissTip(false);   // not acted on — stays eligible for the next document
+  clearTimeout(partsTipTimer);
+  $("sidebar").hidden = true;
+  resetSearch(); $("searchui").hidden = true;
+  renderParts();
+  status("");
+  renderRecents();   // the start screen is visible again
+};
 
 /* ---------- thumbnail grid (lazy render) ---------- */
 let observer = null;
@@ -605,6 +939,9 @@ grid.addEventListener("dblclick", e => {
 });
 
 function openReader(i) {
+  clearTimeout(partsTipTimer);                       // a dblclick's stray clicks queued it
+  if (tipEl?.dataset.tip === "pages") dismissTip();  // double-click is a taught gesture
+  else if (tipEl) dismissTip(false);                 // never float a tip over the reader
   pv.hidden = false;
   buildReader();
   pvIndex = i;
@@ -756,6 +1093,7 @@ let partsAutoShown = false; // reveal the Parts panel once, on the first page cl
 function onPageClick(i, e) {
   const part = getActivePart();
   if (!part) return;
+  if (tipEl?.dataset.tip === "pages") dismissTip();   // action learned
   if (!partsAutoShown) {
     if ($("sidebar").hidden) $("sidebar").hidden = false;
     partsAutoShown = true;
@@ -773,6 +1111,17 @@ function onPageClick(i, e) {
   state.lastClicked = i;
   refreshGridMarks(changed); renderParts();
   if (!pv.hidden) { pvMarkSel(changed); pvUpdateBar(); }
+  else {
+    // step 2 of the tip chain — deferred past the double-click window, since a
+    // dblclick fires two stray single clicks first and then opens the reader
+    clearTimeout(partsTipTimer);
+    partsTipTimer = setTimeout(() => {
+      if (state.pdf && pv.hidden)
+        showTip("parts", $("addpart"),
+          "This is a <b>part</b> — a named set of pages that becomes its own PDF. <b>+ Add part</b> starts another; drag ⋮⋮ to reorder.",
+          "below");
+    }, 350);
+  }
 }
 
 function updateTile(i, part) {
@@ -799,6 +1148,7 @@ function refreshGridMarks(indices) {
 function getActivePart() { return state.parts.find(p => p.id === state.activePart) || null; }
 
 function addPart() {
+  if (tipEl?.dataset.tip === "parts") dismissTip();   // action learned → chains to export tip
   const prev = getActivePart();
   const id = state.nextPartId++;
   state.parts.push({
@@ -816,8 +1166,10 @@ function renderParts() {
   for (const p of state.parts) {
     const d = document.createElement("div");
     d.className = "part" + (p.id === state.activePart ? " active" : "");
+    d.dataset.id = p.id;
     d.innerHTML = `
       <div class="row1">
+        <span class="dragh" title="Drag to reorder">⋮⋮</span>
         <span class="swatch" style="background:${p.color}"></span>
         <input class="name" value="${esc(p.name)}" spellcheck="false">
       </div>
@@ -832,6 +1184,24 @@ function renderParts() {
       state.activePart = p.id;
       renderParts();
       refreshGridMarks([...new Set([...(prev?.pages ?? []), ...p.pages])]);
+    };
+    // drag-to-reorder: the card becomes draggable only while the handle is
+    // held, so text selection in the name input keeps working.
+    const dragh = d.querySelector(".dragh");
+    dragh.onclick = e => e.stopPropagation();
+    dragh.onmousedown = () => { d.draggable = true; };
+    d.ondragstart = e => {
+      dragPartEl = d; d.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", "");
+    };
+    d.ondragend = () => {
+      d.classList.remove("dragging"); d.draggable = false;
+      if (!dragPartEl) return;
+      dragPartEl = null;
+      const order = [...partsEl.children].map(c => +c.dataset.id);
+      state.parts.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+      renderParts();
     };
     const nameInput = d.querySelector(".name");
     nameInput.onclick = e => e.stopPropagation();
@@ -857,6 +1227,18 @@ function renderParts() {
   updateExportButton();
 }
 
+/* while a part card is dragged, live-reorder the DOM under the cursor;
+   state.parts is rebuilt from DOM order on dragend (combined export follows it) */
+let dragPartEl = null;
+partsEl.ondragover = e => {
+  if (!dragPartEl) return;
+  e.preventDefault();
+  const cards = [...partsEl.children].filter(c => c !== dragPartEl);
+  const next = cards.find(c =>
+    e.clientY < c.getBoundingClientRect().top + c.offsetHeight / 2);
+  partsEl.insertBefore(dragPartEl, next ?? null);
+};
+
 function rangesText(set) {
   const s = [...set].sort((a, b) => a - b);
   const out = [];
@@ -870,48 +1252,92 @@ function rangesText(set) {
 }
 
 function updateExportButton() {
-  $("export").disabled = !state.bytes || !state.parts.some(p => p.pages.size);
+  const enabled = !!state.bytes && state.parts.some(p => p.pages.size);
+  const was = !$("export").disabled;
+  $("export").disabled = !enabled;
+  // export tip waits its turn: only after the parts tip has been seen
+  if (enabled && !was && localStorage.getItem("tm-tip-parts")) maybeExportTip();
 }
 
 /* ---------- export ---------- */
+/* Optional "Save As" mode: a per-file save dialog instead of a fixed output
+   folder. Notably, it can place files where the directory picker is refused
+   (Documents/Desktop/Downloads roots — Chromium blocks granting the folder
+   itself but allows files created inside it). Chrome/Edge only. */
+const SAVE_AS_OK = "showSaveFilePicker" in window;
+const saveAsMode = () => SAVE_AS_OK && $("expAsk").checked;
+let destFolderText = "Downloads (default)";   // last folder-based destination label
+function renderDest() {
+  $("destname").textContent =
+    saveAsMode() ? "ask for each file (Save As dialog)" : destFolderText;
+}
+if (!SAVE_AS_OK) $("expAskRow").hidden = true;
+$("expAsk").checked = SAVE_AS_OK && !!localStorage.getItem("tm-saveas");
+$("expAsk").onchange = e => {
+  localStorage.setItem("tm-saveas", e.target.checked ? "1" : "");
+  renderDest();
+};
+renderDest();
+
 $("export").onclick = async () => {
+  if (tipEl?.dataset.tip === "export") dismissTip();   // action learned
   const parts = state.parts.filter(p => p.pages.size);
   if (!parts.length) return;
   const each = $("expEach").checked, combined = $("expCombined").checked;
   if (!each && !combined) { status("Pick at least one output option."); return; }
   $("export").disabled = true;
   try {
-    const src = await PDFLib.PDFDocument.load(state.bytes, { ignoreEncryption: true });
     const raw = $("basename").value.trim();
     const base = raw ? sanitize(raw) : "";
     const named = s => (base ? `${base}-${s}` : s) + ".pdf";
-    if (each) {
-      for (const p of parts) {
-        status(`Building ${p.name} …`);
-        await savePages(src, [...p.pages].sort((a, b) => a - b), named(sanitize(p.name)));
-      }
-    }
+    const jobs = [];
+    if (each) for (const p of parts)
+      jobs.push({ label: p.name, name: named(sanitize(p.name)),
+                  indices: [...p.pages].sort((a, b) => a - b) });
     if (combined) {
-      status("Building combined PDF …");
       const idx = [];
       for (const p of parts)
         for (const i of [...p.pages].sort((a, b) => a - b)) idx.push(i);
-      await savePages(src, idx, named("combined"));
+      jobs.push({ label: "combined PDF", name: named("combined"), indices: idx });
     }
-    status(state.dirHandle ? `Done — saved in “${state.dirHandle.name}”.` : "Done — check your downloads.");
+    // Save As mode: collect all destinations up front. Each dialog interaction
+    // renews the user gesture; building first could outlive transient
+    // activation on big books. Cancelling any dialog aborts before anything
+    // is written.
+    if (saveAsMode())
+      for (const j of jobs)
+        j.fh = await showSaveFilePicker({
+          suggestedName: j.name, id: "textmill-exports",
+          types: [{ description: "PDF", accept: { "application/pdf": [".pdf"] } }],
+        });
+    const src = await PDFLib.PDFDocument.load(state.bytes, { ignoreEncryption: true });
+    for (const j of jobs) {
+      status(`Building ${j.label} …`);
+      await savePages(src, j.indices, j.name, j.fh);
+    }
+    status(saveAsMode() ? "Done."
+         : state.dirHandle ? `Done — saved in “${state.dirHandle.name}”.`
+         : "Done — check your downloads.");
   } catch (e) {
-    console.error(e);
-    status("Export failed: " + e.message);
+    if (e?.name === "AbortError") {
+      status("Export cancelled — no files were written.");
+    } else {
+      console.error(e);
+      status("Export failed: " + e.message);
+    }
   }
   $("export").disabled = false;
 };
 
-async function savePages(src, indices, filename) {
+async function savePages(src, indices, filename, target) {
   const out = await PDFLib.PDFDocument.create();
   const pages = await out.copyPages(src, indices);
   pages.forEach(pg => out.addPage(pg));
   const bytes = await out.save();
-  if (state.dirHandle) {
+  if (target) {                       // Save As mode: handle picked up front
+    const w = await target.createWritable();
+    await w.write(bytes); await w.close();
+  } else if (state.dirHandle) {
     const fh = await state.dirHandle.getFileHandle(filename, { create: true });
     const w = await fh.createWritable();
     await w.write(bytes); await w.close();
@@ -953,12 +1379,36 @@ async function idbGet(k) {
     rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error);
   });
 }
+async function idbDel(k) {
+  const db = await idbOpen();
+  return new Promise((res, rej) => {
+    const tx = db.transaction("kv", "readwrite");
+    tx.objectStore("kv").delete(k);
+    tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+  });
+}
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+// transient folder callout: self-dismisses on the next successful pick or after a timeout
+function showFolderNote(el, msg) {
+  el.innerHTML = '<div class="foldernote"><span></span><button title="Dismiss" aria-label="Dismiss">&times;</button></div>';
+  el.querySelector("span").textContent = msg;
+  el.querySelector("button").onclick = () => clearFolderNote(el);
+  el.hidden = false;
+  clearTimeout(el._noteTimer);
+  el._noteTimer = setTimeout(() => clearFolderNote(el), 14000);
+}
+function clearFolderNote(el) {
+  clearTimeout(el._noteTimer);
+  el.innerHTML = ""; el.hidden = true;
+}
+
 function makePane(key, { mode, pdfs, onDirChange }) {
   const listEl = $(key + "List"), crumbsEl = $(key + "Crumbs"), paneEl = $(key + "Pane");
-  const pane = { key, mode, path: [], curFile: null };  // path: [{name, handle}], [0] = root
+  const noteEl = document.createElement("div");  // holds transient folder callouts
+  noteEl.hidden = true; crumbsEl.after(noteEl);
+  const pane = { key, mode, path: [], curFile: null, noteEl };  // path: [{name, handle}], [0] = root
   pane.cur = () => pane.path[pane.path.length - 1]?.handle || null;
   const pathKey = () => pane.path.map(s => s.name).join("/");
 
@@ -1027,7 +1477,7 @@ function makePane(key, { mode, pdfs, onDirChange }) {
         listEl.querySelectorAll(".frow.cur").forEach(el => el.classList.remove("cur"));
         r.classList.add("cur");
         pane.curFile = pathKey() + "/" + h.name;
-        try { await loadFile(await h.getFile()); }
+        try { await loadFile(await h.getFile(), h); }
         catch (e) { status("Could not open " + h.name + ": " + (e.message || e), true); }
       };
       listEl.appendChild(r);
@@ -1095,9 +1545,18 @@ function makePane(key, { mode, pdfs, onDirChange }) {
     return d;
   }
 
-  pane.choose = async () => {
-    try { await pane.setRoot(await showDirectoryPicker({ mode })); }
-    catch (e) { /* user cancelled */ }
+  pane.choose = async (noteEl) => {
+    try {
+      await pane.setRoot(await showDirectoryPicker({ mode }));
+      if (noteEl) clearFolderNote(noteEl);        // succeeded — retract any hint
+    } catch (e) {
+      // A folder Chrome refuses ("contains system files") surfaces as the same
+      // AbortError as a plain cancel — indistinguishable, so hint conditionally.
+      if (e.name === "AbortError") {
+        const msg = "If Chrome wouldn’t let you pick that folder (“contains system files”): it blocks the top of Documents, Desktop, and Downloads. Open that folder in the picker and choose — or create — a subfolder inside it.";
+        if (noteEl) showFolderNote(noteEl, msg); else status(msg);
+      } else status("Folder access failed: " + (e.message || e), true);
+    }
   };
 
   // On startup: reuse stored path if permission survives, else offer one-click reconnect.
@@ -1135,12 +1594,13 @@ if (FS_OK) {
     onDirChange: p => {  // destination = folder currently open in the To pane
       state.dirHandle = p.cur();
       const names = p.path.map(s => s.name);
-      $("destname").textContent =
+      destFolderText =
         (names.length > 3 ? "…/" : "") + names.slice(-3).join("/") + "/";
+      renderDest();
     },
   });
-  $("fromChoose").onclick = () => fromPane.choose();
-  $("toChoose").onclick = () => toPane.choose();
+  $("fromChoose").onclick = () => fromPane.choose(fromPane.noteEl);
+  $("toChoose").onclick = () => toPane.choose(toPane.noteEl);
   // "= From": point To at the folder currently open in From. The From handle
   // was granted read-only, so this asks the browser to upgrade it to readwrite
   // (needs a user gesture — this click qualifies).
@@ -1157,13 +1617,16 @@ if (FS_OK) {
       status("");
     } catch (e) { status("Could not use folder: " + (e.message || e), true); }
   };
-  $("pickdir").onclick = () => toPane.choose();  // legacy button, same chooser
+  $("pickdir").onclick = () => toPane.choose($("destnote"));  // legacy button, same chooser
   fromPane.restore(); toPane.restore();
 } else {
   $("files").hidden = true;
   $("filesbtn").hidden = true;
   $("pickdir").disabled = true;
-  $("destname").textContent = "Downloads (folder picking needs Chrome/Edge)";
+  destFolderText = "Downloads (folder picking needs Chrome/Edge)";
+  renderDest();
+  $("browserbar").hidden = false;
+  $("browserbarx").onclick = () => { $("browserbar").hidden = true; };
 }
 
 /* collapse controls: per-pane chevrons + whole-panel toggle, remembered locally */
@@ -1183,6 +1646,9 @@ for (const [btn, panel] of [["partsbtn", "sidebar"], ["filesbtn", "files"]]) {
   $(btn).onclick = () => { $(panel).hidden = !$(panel).hidden; };
   if (!$(btn).hidden) $(panel).hidden = true;
 }
+$("filesbtn").addEventListener("click", () => {
+  if (tipEl?.dataset.tip === "files") dismissTip();   // action learned — chain complete
+});
 
 /* ---------- in-app text search (page-level) ---------- */
 let textIndex = null, indexing = null, hits = [], hitPos = -1;
@@ -1221,6 +1687,9 @@ async function doSearch() {
   idx.forEach((t, i) => { if (t.includes(q)) hits.push(i); });
   hits.forEach(i => grid.children[i].classList.add("hit"));
   $("qcount").textContent = hits.length ? hits.length + " pp" : "no matches";
+  // no hits + partially scanned doc: explain that image-only pages can't match
+  if (!hits.length && idx.some(t => !t.trim()) && idx.some(t => t.trim()))
+    status("No matches — note that some pages are scanned images without a text layer, so find can’t see them.");
   if (hits.length) gotoHit(1);
 }
 
