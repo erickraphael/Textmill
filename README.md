@@ -2,7 +2,7 @@
 
 A visual PDF splitter for big documents. Open a book-length PDF, see every page as a thumbnail, group pages into named *parts* (a chapter, an article, a reading), and export each part as its own PDF — or one combined PDF in the order you choose. Built for carving scholarly PDFs into course readings, but it works on anything.
 
-**Use it:** open `textmill.html` in Chrome or Edge — it's a single self-contained file, no install, no build step. Drop a PDF in and click pages. A short chain of hint bubbles walks you through the rest the first time.
+**Use it:** [textmill.erickraphael.com](https://textmill.erickraphael.com/) in Chrome or Edge — it's a single self-contained file, no install, no build step. Drop a PDF in and click pages. A short chain of hint bubbles walks you through the rest the first time. It also runs offline: **Save a copy** under Help downloads the whole app as one file you can open from your own disk.
 
 ## Features
 
