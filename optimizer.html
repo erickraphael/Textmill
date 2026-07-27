@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Textmill — PDF size optimizer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400..700;1,6..72,400..700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #121317; --panel: #1a1c21; --panel2: #23262d; --panel3: #2b2f38;
+    --text: #e9e7e2; --dim: #8f939c; --accent: #5aa2e0;
+    --border: rgba(255,255,255,.07);        /* hairline — separation, not outlines */
+    --line-strong: rgba(255,255,255,.15);   /* interactive-element borders */
+    --serif: "Newsreader", Georgia, "Times New Roman", serif;
+    --shadow-1: 0 1px 2px rgba(0,0,0,.35);
+    --shadow-2: 0 6px 18px rgba(0,0,0,.4);
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  svg.ico { width: 14px; height: 14px; stroke: currentColor; fill: none;
+            stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: 0 0 auto; }
+  .num { font-variant-numeric: tabular-nums; }
+  * { scrollbar-width: thin; scrollbar-color: #363b44 transparent; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: #363b44; border-radius: 5px;
+                              border: 2px solid transparent; background-clip: content-box; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  @media (prefers-reduced-motion: reduce) {
+    *, ::after { animation: none !important; transition: none !important; }
+  }
+
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 9px 16px; background: var(--panel); border-bottom: 1px solid var(--border);
+    flex: 0 0 auto;
+  }
+  header h1 { font-family: var(--serif); font-size: 18px; margin: 0 2px 0 0;
+              font-weight: 600; letter-spacing: -.01em; }
+  header h1 span { color: var(--accent); font-style: italic; }
+  header .sub { color: var(--dim); font-size: 13px; }
+  #appver { color: var(--dim); font-size: 11px; margin-right: 4px; }
+  header .spacer { flex: 1; }
+
+  button {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    background: var(--panel2); color: var(--text); border: 1px solid var(--line-strong);
+    border-radius: 7px; padding: 5px 12px; font-size: 13px; cursor: pointer;
+    transition: background .12s ease, border-color .12s ease;
+  }
+  button:hover { background: var(--panel3); border-color: rgba(255,255,255,.24); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #121317; font-weight: 600; }
+  button.primary:hover { filter: brightness(1.08); }
+  button.primary:disabled, button:disabled { opacity: .4; cursor: default; filter: none; }
+  button.small { padding: 3px 9px; font-size: 12px; }
+
+  #main { flex: 1; overflow-y: auto; padding: 16px; display: flex; }
+
+  /* ---- start screen ---- */
+  #drop {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    border: 1.5px dashed var(--line-strong); border-radius: 16px; color: var(--dim);
+    flex-direction: column; gap: 14px; cursor: pointer; text-align: center; padding: 32px;
+    transition: border-color .15s ease, background .15s ease;
+  }
+  #drop.hover { border-color: var(--accent); color: var(--text);
+                background: color-mix(in srgb, var(--accent) 6%, transparent); }
+  #drop .wordmark { font-family: var(--serif); font-size: 46px; line-height: 1.1;
+                    color: var(--text); letter-spacing: -.015em; }
+  #drop .wordmark span { color: var(--accent); font-style: italic; }
+  #drop .wordmark .kind { color: var(--dim); font-style: normal; font-size: 30px; }
+  #drop .tag { font-size: 15px; max-width: 52ch; margin-top: -6px; }
+  #drop .dropline { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+  #drop .dropline svg.ico { width: 17px; height: 17px; }
+  #drop .privacy { display: flex; align-items: center; gap: 6px;
+                   font-size: 12px; color: var(--dim); margin-top: 8px; }
+  #drop .privacy svg.ico { width: 12px; height: 12px; }
+
+  /* ---- job screen ---- */
+  #job { flex: 1; display: flex; align-items: flex-start; justify-content: center; padding-top: 6vh; }
+  #jobcard {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: var(--shadow-1); width: min(520px, 100%); padding: 18px 20px;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  #filerow { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+  #filerow .fname { font-family: var(--serif); font-size: 18px; font-weight: 600;
+                    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #filerow .fsize { color: var(--dim); font-size: 13px; flex: none; }
+  #filerow .grow { flex: 1; }
+
+  .presets { display: flex; flex-direction: column; gap: 8px; }
+  .presets .phead { font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+                    color: var(--dim); font-weight: 600; }
+  label.preset {
+    display: flex; gap: 10px; align-items: baseline; background: var(--panel2);
+    border: 1px solid var(--border); border-radius: 9px; padding: 9px 12px; cursor: pointer;
+    transition: border-color .12s ease;
+  }
+  label.preset:hover { border-color: var(--line-strong); }
+  label.preset.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  label.preset input { accent-color: var(--accent); transform: translateY(1px); }
+  label.preset b { font-size: 13.5px; }
+  label.preset .pdesc { color: var(--dim); font-size: 12px; }
+  label.preset .grow { flex: 1; }
+
+  #runrow { display: flex; gap: 8px; align-items: center; }
+  #runrow .grow { flex: 1; }
+
+  /* progress */
+  #prog { display: flex; flex-direction: column; gap: 6px; }
+  #progbar { height: 4px; border-radius: 2px; background: var(--panel3); overflow: hidden; }
+  #progbar i { display: block; height: 100%; width: 0; background: var(--accent);
+               border-radius: 2px; transition: width .25s ease; }
+  #progbar.indet i { width: 30%; animation: slide 1.2s ease-in-out infinite alternate; }
+  @keyframes slide { from { margin-left: 0; } to { margin-left: 70%; } }
+  #progtext { color: var(--dim); font-size: 12px; min-height: 16px; }
+
+  /* result */
+  #result { border-top: 1px solid var(--border); padding-top: 14px;
+            display: flex; flex-direction: column; gap: 10px; }
+  #sizes { display: flex; align-items: baseline; gap: 10px; font-variant-numeric: tabular-nums; }
+  #sizes .from { color: var(--dim); font-size: 15px; text-decoration: line-through; }
+  #sizes .arrow { color: var(--dim); }
+  #sizes .to { font-family: var(--serif); font-size: 26px; font-weight: 600; }
+  #sizes .delta { font-size: 13px; padding: 1px 8px; border-radius: 999px; }
+  #sizes .delta.good { color: #7fc98f; background: rgba(92,184,122,.14); }
+  #sizes .delta.bad { color: #e0a95a; background: rgba(224,169,90,.14); }
+  #verdict { font-size: 13px; color: var(--dim); line-height: 1.5; }
+  #resbtns { display: flex; gap: 8px; align-items: center; }
+
+  #status {
+    flex: 0 0 auto; color: var(--dim); font-size: 12px; min-height: 18px;
+    padding: 6px 16px 8px; border-top: 1px solid var(--border); background: var(--panel);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  /* ---- help overlay ---- */
+  #help {
+    position: fixed; inset: 0; z-index: 60;
+    background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center;
+  }
+  #helpcard {
+    background: var(--panel); border: 1px solid var(--line-strong); border-radius: 10px;
+    box-shadow: var(--shadow-2); width: min(640px, calc(100vw - 48px));
+    max-height: min(80vh, 720px); display: flex; flex-direction: column;
+  }
+  .hhead {
+    display: flex; align-items: center; gap: 8px; padding: 12px 16px;
+    border-bottom: 1px solid var(--border); flex: 0 0 auto;
+  }
+  .hhead b { font-family: var(--serif); font-size: 17px; font-weight: 600; }
+  .hhead .hver { color: var(--dim); font-size: 12px; }
+  .hhead .grow { flex: 1; }
+  .hbody { overflow-y: auto; padding: 6px 18px 16px; font-size: 13px; line-height: 1.55; }
+  .hbody h3 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--dim); margin: 16px 0 4px; font-weight: 600;
+  }
+  .hbody p { margin: 4px 0; color: var(--text); }
+  .hbody a { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Text<span>mill</span></h1>
+  <span class="sub">size optimizer</span>
+  <span id="appver" title="Optimizer version"></span>
+  <div class="spacer"></div>
+  <button id="helpbtn" title="Help"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>Help</button>
+</header>
+
+<div id="main">
+  <div id="drop">
+    <div class="wordmark">Text<span>mill</span> <span class="kind">optimizer</span></div>
+    <div class="tag">Shrink a bloated PDF without losing its text — images are recompressed, the text layer stays selectable and searchable.</div>
+    <div class="dropline"><svg class="ico" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg><b>Drop a PDF here</b>&nbsp;or click to choose a file</div>
+    <div class="privacy"><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Everything stays on your machine — nothing is uploaded.</div>
+  </div>
+  <input type="file" id="file" accept="application/pdf" hidden>
+
+  <div id="job" hidden>
+    <div id="jobcard">
+      <div id="filerow">
+        <span class="fname" id="fname"></span>
+        <span class="fsize num" id="fsize"></span>
+        <span class="grow"></span>
+        <button class="small" id="another">Different file…</button>
+      </div>
+
+      <div class="presets" id="presets">
+        <div class="phead">Quality</div>
+        <label class="preset" data-p="screen">
+          <input type="radio" name="preset" value="screen">
+          <div><b>Smallest</b> <span class="pdesc">— images at 72 dpi; fine for on-screen reading</span></div>
+        </label>
+        <label class="preset on" data-p="ebook">
+          <input type="radio" name="preset" value="ebook" checked>
+          <div><b>Balanced</b> <span class="pdesc">— images at 150 dpi; recommended</span></div>
+        </label>
+        <label class="preset" data-p="printer">
+          <input type="radio" name="preset" value="printer">
+          <div><b>High quality</b> <span class="pdesc">— images at 300 dpi; gentle, prints well</span></div>
+        </label>
+      </div>
+
+      <div id="runrow">
+        <button class="primary" id="run">Optimize</button>
+        <button class="small" id="cancel" hidden>Cancel</button>
+        <span class="grow"></span>
+      </div>
+
+      <div id="prog" hidden>
+        <div id="progbar"><i></i></div>
+        <div id="progtext" class="num"></div>
+      </div>
+
+      <div id="result" hidden>
+        <div id="sizes">
+          <span class="from num" id="szfrom"></span>
+          <span class="arrow">→</span>
+          <span class="to num" id="szto"></span>
+          <span class="delta num" id="szdelta"></span>
+        </div>
+        <div id="verdict"></div>
+        <div id="resbtns">
+          <button class="primary" id="download"><svg class="ico" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>Download</button>
+          <button class="small" id="downanyway" hidden>Download anyway (larger file)</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="status"></div>
+
+<div id="help" hidden>
+  <div id="helpcard">
+    <div class="hhead">
+      <b>How the optimizer works</b><span class="hver" id="helpver"></span>
+      <span class="grow"></span>
+      <button class="small" id="helpclose">Close</button>
+    </div>
+    <div class="hbody">
+      <h3>What it does</h3>
+      <p>Your PDF is rewritten by <a href="https://www.ghostscript.com" target="_blank" rel="noopener">Ghostscript</a> running inside your browser: oversized images are downsampled and recompressed, fonts are subset, and content streams are rewritten. Text and vector graphics are <b>never rasterized</b> — the output stays selectable and searchable.</p>
+
+      <h3>Privacy</h3>
+      <p>Unlike online "compress PDF" services, nothing is uploaded. The compression engine (~14&nbsp;MB) is downloaded once from a CDN the first time you optimize a file; your PDF itself never leaves your machine.</p>
+
+      <h3>Quality presets</h3>
+      <p><b>Smallest</b> downsamples images to 72&nbsp;dpi — best for documents you'll only read on screen. <b>Balanced</b> (150&nbsp;dpi) is the recommended default. <b>High quality</b> (300&nbsp;dpi) touches images gently and prints well.</p>
+
+      <h3>Honest results</h3>
+      <p>Some PDFs — especially book scans already compressed with JBIG2 — are near-optimal and can even <i>grow</i> when reprocessed. The optimizer always shows original vs. result size, and if the result isn't smaller it says so instead of handing you a worse file.</p>
+
+      <h3>Limits</h3>
+      <p>Password-protected PDFs can't be processed. Very large files (hundreds of MB) may exceed the browser's memory — if that happens you'll get a clear error, not a broken download.</p>
+
+      <h3>Credits &amp; license</h3>
+      <p>Compression by <a href="https://www.ghostscript.com" target="_blank" rel="noopener">GPL Ghostscript</a> (© Artifex Software), used under the <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener">GNU AGPL v3</a>, via Laurent Meyer's <a href="https://github.com/laurentmmeyer/ghostscript-pdf-compress.wasm" target="_blank" rel="noopener">ghostscript-pdf-compress.wasm</a> build. This page's complete source is the page itself — View Source is the source code.</p>
+
+      <h3>Feedback</h3>
+      <p>Found a bug or have an idea? <a id="contact" href="#">Leave me a note</a> — this opens your mail app with a pre-addressed message.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+const APP_VERSION = "0.2.0";
+console.log("Textmill Optimizer v" + APP_VERSION);
+
+/* Engine: laurentmmeyer/ghostscript-pdf-compress.wasm, pinned to a commit for an
+   immutable URL. Chosen over @jspawn/ghostscript-wasm because that build's JBIG2
+   decoder fails at runtime — it silently DROPS the page images of scanned books
+   (exit 0, "recoverable image error") and outputs only the hidden OCR text layer.
+   This build was verified to preserve JBIG2 scan images at all three presets. */
+const GS_CDN = "https://cdn.jsdelivr.net/gh/laurentmmeyer/ghostscript-pdf-compress.wasm@78705db4c172c485bd51b6922442a83be8bd361d/src/lib/";
+
+const $ = id => document.getElementById(id);
+const statusEl = $("status");
+
+/* ---- error surfacing: any failure shows in the status bar, never silent ---- */
+window.addEventListener("error", e => status("Error: " + e.message, true));
+window.addEventListener("unhandledrejection", e =>
+  status("Error: " + (e.reason && e.reason.message || e.reason), true));
+
+function status(msg, isError) {
+  statusEl.textContent = msg;
+  statusEl.style.color = isError ? "#e07070" : "";
+}
+function fmtSize(n) {
+  if (n < 1024) return n + " B";
+  if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
+  if (n < 1073741824) return (n / 1048576).toFixed(1) + " MB";
+  return (n / 1073741824).toFixed(2) + " GB";
+}
+
+/* ---------- version + help ---------- */
+$("appver").textContent = "v" + APP_VERSION.replace(/\.0$/, "");
+$("helpver").textContent = "v" + APP_VERSION;
+$("contact").href = "mailto:erickraphael@gmail.com?subject=" +
+  encodeURIComponent("Textmill Optimizer v" + APP_VERSION + " — a note");
+$("helpbtn").onclick = () => $("help").hidden = false;
+$("helpclose").onclick = () => $("help").hidden = true;
+$("help").addEventListener("click", e => { if (e.target === $("help")) $("help").hidden = true; });
+document.addEventListener("keydown", e => { if (e.key === "Escape") $("help").hidden = true; });
+
+/* ---------- state ---------- */
+const state = {
+  file: null,        // the chosen File — bytes are re-read per run (transfer detaches buffers)
+  worker: null,      // live worker while a run is in flight
+  result: null,      // Uint8Array of the last output
+  resultURL: null,   // object URL for download
+  running: false,
+  warmed: false,     // engine prefetch kicked off
+};
+
+/* ---------- file selection ---------- */
+const drop = $("drop"), fileInput = $("file");
+drop.onclick = () => fileInput.click();
+drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("hover"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("hover"));
+drop.addEventListener("drop", e => {
+  e.preventDefault(); drop.classList.remove("hover");
+  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f) takeFile(f);
+});
+fileInput.onchange = () => { if (fileInput.files[0]) takeFile(fileInput.files[0]); fileInput.value = ""; };
+// dropping anywhere on the job screen swaps the file
+document.addEventListener("dragover", e => e.preventDefault());
+document.addEventListener("drop", e => {
+  e.preventDefault();
+  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f && !drop.contains(e.target)) takeFile(f);
+});
+$("another").onclick = () => fileInput.click();
+
+async function takeFile(f) {
+  if (!/\.pdf$/i.test(f.name) && f.type !== "application/pdf") {
+    status("That doesn't look like a PDF — pick a .pdf file.", true); return;
+  }
+  const head = new Uint8Array(await f.slice(0, 5).arrayBuffer());
+  if (String.fromCharCode(...head) !== "%PDF-") {
+    status("“" + f.name + "” doesn't start like a PDF — it may be renamed or corrupt.", true); return;
+  }
+  cancelRun();
+  state.file = f;
+  clearResult();
+  $("fname").textContent = f.name;
+  $("fname").title = f.name;
+  $("fsize").textContent = fmtSize(f.size);
+  drop.hidden = true;
+  $("job").hidden = false;
+  status(f.size > 300 * 1048576
+    ? "Note: very large file — in-browser processing may run out of memory. Worth a try."
+    : "");
+  warmEngine();  // fetch the WASM into HTTP cache while the user picks a preset
+}
+
+function warmEngine() {
+  if (state.warmed) return;
+  state.warmed = true;
+  status("Fetching compression engine (~14 MB, cached after first use)…");
+  Promise.all([fetch(GS_CDN + "gs-worker.js"), fetch(GS_CDN + "gs-worker.wasm")])
+    .then(rs => { if (rs.every(r => r.ok)) status("Engine ready."); else throw 0; })
+    .catch(() => { state.warmed = false; /* real load happens in the worker; it will report */ });
+}
+
+/* ---------- presets ---------- */
+document.querySelectorAll("label.preset").forEach(l => {
+  l.querySelector("input").addEventListener("change", () => {
+    document.querySelectorAll("label.preset").forEach(x => x.classList.remove("on"));
+    l.classList.add("on");
+    localStorage.setItem("tm-opt-preset", l.dataset.p);
+  });
+});
+(function restorePreset() {
+  const p = localStorage.getItem("tm-opt-preset");
+  const inp = p && document.querySelector('input[value="' + p + '"]');
+  if (inp) { inp.checked = true; inp.dispatchEvent(new Event("change")); }
+})();
+
+/* ---------- the worker ----------
+   Fresh worker per run: Ghostscript's Emscripten runtime exits after -dBATCH, so
+   reusing an instance is fragile. The WASM comes from immutable CDN URLs and is
+   served from HTTP cache on every run after the first.
+   Classic worker + importScripts (not a module worker + import()): module workers
+   can't resolve network imports on file:// pages, and this page must also work when
+   simply double-clicked.
+   gs-worker.js is a classic (non-modularized) Emscripten build: it picks up a
+   pre-configured global Module and runs main() on load; completion is signaled
+   through onExit/postRun. It hardcodes its own wasm URL (the author's personal CDN),
+   so the wasm is fetched from jsDelivr here and handed over via Module.wasmBinary,
+   which takes precedence. Console channels are intercepted as well as print/printErr
+   so no progress or error line can slip past. */
+const WORKER_SRC = `
+  self.onmessage = async (e) => {
+    const { bytes, preset, cdn } = e.data;
+    const logs = [];
+    let total = 0;
+    let finished = false;
+    const onLine = (t) => {
+      for (const line of String(t).split("\\n")) {
+        logs.push(line); if (logs.length > 500) logs.shift();
+        let m = /^Processing pages \\d+ through (\\d+)/.exec(line);
+        if (m) { total = +m[1]; postMessage({ type: "total", total }); continue; }
+        m = /^Page (\\d+)/.exec(line);
+        if (m) postMessage({ type: "page", page: +m[1], total });
+      }
+    };
+    for (const meth of ["log", "error", "warn", "info", "debug"])
+      console[meth] = (...a) => onLine(a.join(" "));
+    const finish = (exitCode) => {
+      if (finished) return; finished = true;
+      let out = null;
+      try { out = self.Module.FS.readFile("out.pdf"); } catch (_) {}
+      const all = logs.join("\\n");
+      // gs "repairs" encrypted files and exits 0 with a blank output —
+      // the password warning in the log is the reliable signal, not the exit code
+      if (/requires a password|password did not work/i.test(all)) {
+        postMessage({ type: "error", message:
+          "This PDF is password-protected — it can't be optimized without removing the password first." });
+        return;
+      }
+      if (exitCode !== 0 || !out || out.length < 100) {
+        const lastErr = logs.filter(l => /error/i.test(l)).pop();
+        postMessage({ type: "error", message:
+          "Ghostscript couldn't process this file — it may be corrupt or malformed." +
+          (lastErr ? " Last message: " + lastErr.trim() : " (exit code " + exitCode + ")") });
+        return;
+      }
+      postMessage({ type: "done", bytes: out.buffer,
+                    repaired: /repaired or ignored/i.test(all),
+                    // gs "recovers" from undecodable images by dropping or truncating
+                    // them and still exits 0 — for a scan that destroys the page content
+                    imgErr: /recoverable image error|image error/i.test(all) }, [out.buffer]);
+    };
+    try {
+      const resp = await fetch(cdn + "gs-worker.wasm");
+      if (!resp.ok) throw new Error("failed to fetch engine (HTTP " + resp.status + ")");
+      const wasmBinary = await resp.arrayBuffer();
+      let exitCode = null;
+      self.Module = {
+        wasmBinary,
+        arguments: [
+          "-sDEVICE=pdfwrite",
+          "-dCompatibilityLevel=1.5",
+          "-dPDFSETTINGS=/" + preset,
+          "-dNOPAUSE", "-dBATCH",
+          "-sOutputFile=out.pdf",
+          "in.pdf",
+        ],
+        print: onLine,
+        printErr: onLine,
+        preRun: [() => {
+          postMessage({ type: "start" });
+          self.Module.FS.writeFile("in.pdf", new Uint8Array(bytes));
+        }],
+        onExit: (c) => { exitCode = c; setTimeout(() => finish(c), 0); },
+        postRun: [() => finish(exitCode === null ? 0 : exitCode)],
+        onAbort: (what) => {
+          if (finished) return; finished = true;
+          postMessage({ type: "error", message:
+            /memory|allocat|out of bounds|table index/i.test(String(what))
+              ? "Ran out of memory — this file is likely too large to process in the browser."
+              : "engine: crashed (" + what + ")" });
+        },
+      };
+      importScripts(cdn + "gs-worker.js"); // runs gs main() with the config above
+    } catch (err) {
+      if (finished) return; finished = true;
+      const s = String(err && err.message || err);
+      postMessage({
+        type: "error",
+        message: /abort|memory|allocat|out of bounds/i.test(s)
+          ? "Ran out of memory — this file is likely too large to process in the browser."
+          : "engine: " + s,
+      });
+    }
+  };
+`;
+
+/* ---------- run ---------- */
+const runBtn = $("run"), cancelBtn = $("cancel"),
+      prog = $("prog"), progBar = $("progbar"), progFill = progBar.querySelector("i"),
+      progText = $("progtext");
+
+runBtn.onclick = startRun;
+
+async function startRun() {
+  if (state.running || !state.file) return;
+  state.running = true;
+  clearResult();
+  runBtn.disabled = true;
+  cancelBtn.hidden = false;
+  prog.hidden = false;
+  progBar.classList.add("indet");
+  progFill.style.width = "";
+  progText.textContent = "Loading compression engine…";
+  status("Working — the file never leaves your machine.");
+
+  const preset = document.querySelector('input[name="preset"]:checked').value;
+  const t0 = performance.now();
+
+  let buf;
+  try { buf = await state.file.arrayBuffer(); }
+  catch (e) { finishRun(); status("Couldn't read the file: " + e.message, true); return; }
+
+  let w;
+  try {
+    w = new Worker(URL.createObjectURL(new Blob([WORKER_SRC], { type: "text/javascript" })));
+  } catch (e) {
+    finishRun(); status("Couldn't start a background worker: " + e.message, true); return;
+  }
+  state.worker = w;
+
+  w.onerror = (e) => {
+    finishRun();
+    status("Compression engine failed to load from cdn.jsdelivr.net — check your internet connection or content blocker, then try again." +
+           (e.message ? " (" + e.message + ")" : ""), true);
+  };
+  w.onmessage = (e) => {
+    const m = e.data;
+    if (m.type === "start") {
+      progText.textContent = "Rewriting PDF…";
+    } else if (m.type === "total") {
+      progBar.classList.remove("indet");
+      progText.textContent = "0 / " + m.total + " pages";
+    } else if (m.type === "page") {
+      if (m.total) {
+        progBar.classList.remove("indet");
+        progFill.style.width = Math.round(100 * m.page / m.total) + "%";
+        progText.textContent = m.page + " / " + m.total + " pages";
+      } else {
+        progText.textContent = "page " + m.page;
+      }
+    } else if (m.type === "error") {
+      finishRun();
+      const engine = m.message.startsWith("engine: ");
+      status(engine
+        ? "Compression engine failed to load or crashed — check your connection and try again. (" + m.message.slice(8) + ")"
+        : m.message, true);
+    } else if (m.type === "done") {
+      const secs = ((performance.now() - t0) / 1000).toFixed(1);
+      finishRun();
+      showResult(new Uint8Array(m.bytes), preset, secs, m);
+    }
+  };
+
+  w.postMessage({ bytes: buf, preset, cdn: GS_CDN }, [buf]);
+}
+
+function cancelRun() {
+  if (state.worker) { state.worker.terminate(); state.worker = null; }
+  if (state.running) { finishRun(); status("Cancelled."); }
+}
+cancelBtn.onclick = cancelRun;
+
+function finishRun() {
+  state.running = false;
+  if (state.worker) { state.worker.terminate(); state.worker = null; }
+  runBtn.disabled = false;
+  cancelBtn.hidden = true;
+  prog.hidden = true;
+}
+
+/* ---------- result ---------- */
+function clearResult() {
+  $("result").hidden = true;
+  state.result = null;
+  if (state.resultURL) { URL.revokeObjectURL(state.resultURL); state.resultURL = null; }
+}
+
+function showResult(out, preset, secs, flags) {
+  const orig = state.file.size, now = out.length;
+  const head = String.fromCharCode(...out.slice(0, 5));
+  if (head !== "%PDF-") {
+    status("The engine produced something that isn't a PDF — not offering it for download.", true);
+    return;
+  }
+  state.result = out;
+  state.resultURL = URL.createObjectURL(new Blob([out], { type: "application/pdf" }));
+
+  const smaller = now < orig;
+  const pct = Math.abs(1 - now / orig) * 100;
+  $("szfrom").textContent = fmtSize(orig);
+  $("szto").textContent = fmtSize(now);
+  const d = $("szdelta");
+  d.textContent = (smaller ? "−" : "+") + (pct < 1 ? pct.toFixed(1) : Math.round(pct)) + "%";
+  d.className = "delta num " + (smaller ? "good" : "bad");
+
+  const verdict = $("verdict");
+  if (flags.imgErr) {
+    // never present a mangled scan as a win — the size drop is images being destroyed
+    verdict.textContent = "Ghostscript hit errors decoding this file's images and dropped or truncated them — " +
+      "the smaller size is missing content, not compression. This happens with some scanned books " +
+      "(JBIG2/JPEG 2000 encoded pages). Keep the original.";
+    $("download").hidden = true;
+    $("downanyway").hidden = false;
+    $("downanyway").textContent = "Download anyway (page images damaged)";
+  } else if (smaller) {
+    verdict.textContent = (flags.repaired
+      ? "Caution: the original had structural errors that Ghostscript repaired or ignored — check the output is complete before deleting anything. "
+      : "Text layer preserved — the output stays selectable and searchable. ") + "Took " + secs + " s.";
+    $("download").hidden = false;
+    $("downanyway").hidden = true;
+  } else {
+    verdict.textContent = "No savings: this PDF is already efficiently compressed (common for book scans using JBIG2). " +
+      "Recompressing it would " + (now === orig ? "change nothing" : "make it bigger") + ", so keeping the original is the honest move." +
+      (preset !== "screen" ? " The “Smallest” preset might still shrink it, at lower image quality." : "");
+    $("download").hidden = true;
+    $("downanyway").hidden = false;
+    $("downanyway").textContent = "Download anyway (larger file)";
+  }
+  $("result").hidden = false;
+  status("Done in " + secs + " s.");
+}
+
+function downloadResult() {
+  if (!state.resultURL) return;
+  const a = document.createElement("a");
+  a.href = state.resultURL;
+  a.download = state.file.name.replace(/\.pdf$/i, "") + "-optimized.pdf";
+  a.click();
+}
+$("download").onclick = downloadResult;
+$("downanyway").onclick = downloadResult;
+</script>
+</body>
+</html>
