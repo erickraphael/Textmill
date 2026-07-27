@@ -4,10 +4,28 @@
 <meta charset="utf-8">
 <title>Textmill</title>
 <meta name="robots" content="noindex">
-<meta http-equiv="refresh" content="0; url=./">
 <link rel="canonical" href="./">
+<script>
+/* Textmill used to live at /textmill.html; the app now serves from the site root.
+   Browsers that cached the OLD index.html (itself a redirect back to this file)
+   would ping-pong forever, so this redirect is deliberately defensive:
+     - it fires at most once per tab (sessionStorage sentinel), and
+     - it appends ?v=<version> so the root is refetched instead of served from
+       the stale cache entry that caused the loop.
+   If we've already bounced once, we stop and show a plain link instead. */
+(function () {
+  var V = "0.9.2";
+  try {
+    if (sessionStorage.getItem("tm-legacy-redirect")) return;
+    sessionStorage.setItem("tm-legacy-redirect", "1");
+  } catch (e) { /* private mode: fall through, single hop is still safe */ }
+  location.replace("./?v=" + V);
+})();
+</script>
 </head>
 <body>
-<p>Textmill has moved. <a href="./">Open Textmill</a></p>
+<p>Textmill has moved to <a href="./">textmill.erickraphael.com</a>.</p>
+<p><small>If you were sent back and forth, do a hard reload
+(<kbd>Shift</kbd>+<kbd>Reload</kbd>) to clear the old cached page.</small></p>
 </body>
 </html>
