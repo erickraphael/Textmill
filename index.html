@@ -694,14 +694,27 @@ async function loadUrl(url) {
   }
 }
 
+/* pdf.js caches ONE PDFWorker per workerPort, and PDFDocumentProxy.destroy() tears it
+   down asynchronously (it round-trips a "Terminate" message to the worker). While that
+   is in flight the cached worker is flagged _pendingDestroy, and any getDocument() on
+   the same port throws "PDFWorker.fromPort - the worker is being destroyed". Retrying
+   appears to fix it only because teardown has finished by then. So: never start a load
+   until the previous teardown has settled. */
+let pdfTeardown = Promise.resolve();
+function closeDoc() {
+  const doc = state.pdf;
+  state.pdf = null;
+  if (doc) pdfTeardown = pdfTeardown.then(() => doc.destroy()).catch(() => {});
+  return pdfTeardown;
+}
+
 async function loadBytes(bytes, name) {
   try {
     status("Loading " + name + " …");
     dismissTip(false);   // a lingering tip from the previous document wasn't acted on
     clearTimeout(partsTipTimer);
-    // switching documents: destroy the old one first (frees its worker memory)
-    try { state.pdf?.destroy(); } catch (e) { /* already gone */ }
-    state.pdf = null;
+    // switching documents: fully destroy the old one first (frees its worker memory)
+    await closeDoc();
     state.bytes = bytes;
     // pdf.js consumes its own copy so bytes stay intact for pdf-lib
     state.pdf = await pdfjsLib.getDocument({ data: state.bytes.slice() }).promise;
@@ -841,8 +854,8 @@ $("brand").onclick = async () => {
   if (state.parts.some(p => p.pages.size) && !(await confirmHome()))
     return;
   closeReader();
-  try { state.pdf?.destroy(); } catch (e) { /* already gone */ }
-  state.pdf = null; state.bytes = null; state.labels = null; state.name = "";
+  closeDoc();   // teardown continues in the background; the next load awaits it
+  state.bytes = null; state.labels = null; state.name = "";
   state.parts = []; state.activePart = null; state.lastClicked = null; state.nextPartId = 1;
   partsAutoShown = false;
   if (observer) observer.disconnect();
