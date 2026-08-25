@@ -379,6 +379,7 @@
         <span id="destname" style="color:var(--dim); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Downloads (default)</span>
       </div>
       <div id="destnote" hidden></div>
+      <label id="expZipRow" title="Bundle every file into one .zip instead of downloading them one at a time" style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--dim);"><input type="checkbox" id="expZip"> Download everything as one .zip</label>
       <label id="expAskRow" title="Pick a location per file with a standard Save As dialog (overrides the output folder)" style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--dim);"><input type="checkbox" id="expAsk"> Ask where to save each file instead</label>
       <button class="primary" id="export" disabled>Build PDF(s)</button>
       <div id="status"></div>
@@ -471,7 +472,7 @@
       <p>Type in the search box, then <kbd>Enter</kbd> / <kbd>Shift</kbd>+<kbd>Enter</kbd> to step through matching pages. Double-click any page to open the scrolling reader — its shortcuts are listed in the reader's own toolbar.</p>
 
       <h3>Export</h3>
-      <p>Choose <b>One PDF per part</b>, <b>One PDF (with parts in list order)</b>, or both, optionally set a base name, then <b>Build PDF(s)</b>. Files go to Downloads unless you pick an output folder — or tick <b>Ask where to save each file instead</b> for a per-file Save As dialog. The <b>Files</b> panel gives you From/To folder panes for browsing sources and destinations directly.</p>
+      <p>Choose <b>One PDF per part</b>, <b>One PDF (with parts in list order)</b>, or both, optionally set a base name, then <b>Build PDF(s)</b>. Files go to Downloads unless you pick an output folder — or tick <b>Ask where to save each file instead</b> for a per-file Save As dialog. When files do go to Downloads, <b>Download everything as one .zip</b> bundles them into a single archive rather than downloading them one by one. The <b>Files</b> panel gives you From/To folder panes for browsing sources and destinations directly.</p>
 
       <h3>Save a copy</h3>
       <p>Textmill is one self-contained file — <a href="https://textmill.erickraphael.com/" download="textmill.html">save it as <code>textmill.html</code></a> and it works offline from your own disk, no server needed.</p>
@@ -487,7 +488,7 @@
 </div>
 
 <script>
-const APP_VERSION = "0.9.2";
+const APP_VERSION = "0.9.3";
 console.log("Textmill v" + APP_VERSION);
 
 // ---- error surfacing: any failure shows in the status bar, never silent ----
@@ -1330,15 +1331,26 @@ function updateExportButton() {
    itself but allows files created inside it). Chrome/Edge only. */
 const SAVE_AS_OK = "showSaveFilePicker" in window;
 const saveAsMode = () => SAVE_AS_OK && $("expAsk").checked;
+/* True only on the browser-download fallback (no folder access: Safari, Firefox). */
+const plainDownload = () => !saveAsMode() && !state.dirHandle;
+const zipMode = () => plainDownload() && $("expZip").checked;
 let destFolderText = "Downloads (default)";   // last folder-based destination label
 function renderDest() {
+  $("expZipRow").hidden = !plainDownload();
   $("destname").textContent =
-    saveAsMode() ? "ask for each file (Save As dialog)" : destFolderText;
+    saveAsMode() ? "ask for each file (Save As dialog)"
+    : zipMode()  ? "Downloads (one .zip)"
+    : destFolderText;
 }
 if (!SAVE_AS_OK) $("expAskRow").hidden = true;
 $("expAsk").checked = SAVE_AS_OK && !!localStorage.getItem("tm-saveas");
 $("expAsk").onchange = e => {
   localStorage.setItem("tm-saveas", e.target.checked ? "1" : "");
+  renderDest();
+};
+$("expZip").checked = !!localStorage.getItem("tm-zip");
+$("expZip").onchange = e => {
+  localStorage.setItem("tm-zip", e.target.checked ? "1" : "");
   renderDest();
 };
 renderDest();
@@ -1375,9 +1387,31 @@ $("export").onclick = async () => {
           types: [{ description: "PDF", accept: { "application/pdf": [".pdf"] } }],
         });
     const src = await PDFLib.PDFDocument.load(state.bytes, { ignoreEncryption: true });
-    for (const j of jobs) {
-      status(`Building ${j.label} …`);
-      await savePages(src, j.indices, j.name, j.fh);
+    if (zipMode() && jobs.length > 1) {
+      // One download instead of many. Costs peak memory: every part is held at
+      // once, so this stays opt-in rather than the default.
+      const entries = [];
+      for (const j of jobs) {
+        status(`Building ${j.label} …`);
+        entries.push({ name: j.name, bytes: await buildPages(src, j.indices) });
+      }
+      status("Zipping …");
+      downloadBlob(zipStore(entries), named("parts").replace(/\.pdf$/, ".zip"),
+                   "application/zip");
+    } else {
+      for (let i = 0; i < jobs.length; i++) {
+        const j = jobs[i];
+        status(`Building ${j.label} …`);
+        await savePages(src, j.indices, j.name, j.fh);
+        /* WebKit collapses download navigations fired back to back — of five
+           files fired in a row, one arrives. An idle gap after each download
+           lets it commit before the next part starts building; measured in
+           Safari, five of five arrive with the gap, one of five without it.
+           Buffering every part first and then firing also works, but costs
+           roughly twice the source in peak memory, so pacing wins. Scoped to
+           the fallback: the folder paths write files directly and never queue. */
+        if (plainDownload() && i < jobs.length - 1) await idle(1200);
+      }
     }
     status(saveAsMode() ? "Done."
          : state.dirHandle ? `Done — saved in “${state.dirHandle.name}”.`
@@ -1393,11 +1427,17 @@ $("export").onclick = async () => {
   $("export").disabled = false;
 };
 
-async function savePages(src, indices, filename, target) {
+const idle = ms => new Promise(r => setTimeout(r, ms));
+
+async function buildPages(src, indices) {
   const out = await PDFLib.PDFDocument.create();
   const pages = await out.copyPages(src, indices);
   pages.forEach(pg => out.addPage(pg));
-  const bytes = await out.save();
+  return out.save();
+}
+
+async function savePages(src, indices, filename, target) {
+  const bytes = await buildPages(src, indices);
   if (target) {                       // Save As mode: handle picked up front
     const w = await target.createWritable();
     await w.write(bytes); await w.close();
@@ -1406,11 +1446,56 @@ async function savePages(src, indices, filename, target) {
     const w = await fh.createWritable();
     await w.write(bytes); await w.close();
   } else {
-    const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
-    const a = Object.assign(document.createElement("a"), { href: url, download: filename });
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    downloadBlob(bytes, filename, "application/pdf");
   }
+}
+
+/* The blob outlives the click by a wide margin on purpose: the download reads it
+   after the click returns, and a part of a book is tens of megabytes, not the
+   kilobytes a short revoke window survives. */
+function downloadBlob(bytes, filename, type) {
+  const url = URL.createObjectURL(new Blob([bytes], { type }));
+  const a = Object.assign(document.createElement("a"), { href: url, download: filename });
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+/* Store-only ZIP. PDFs are already compressed, so deflate buys nothing and
+   would mean pulling in a library; this keeps the app dependency-free. */
+const zipCRC = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) { let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0; }
+  return b => { let c = 0xFFFFFFFF;
+    for (let i = 0; i < b.length; i++) c = t[(c ^ b[i]) & 0xFF] ^ (c >>> 8);
+    return (c ^ 0xFFFFFFFF) >>> 0; };
+})();
+
+function zipStore(entries) {          // [{ name, bytes }] -> Uint8Array
+  const enc = new TextEncoder(), chunks = [], central = [];
+  const u16 = n => [n & 255, (n >>> 8) & 255];
+  const u32 = n => [n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255];
+  let off = 0;
+  for (const { name, bytes } of entries) {
+    const nm = enc.encode(name), crc = zipCRC(bytes), len = bytes.length;
+    const local = new Uint8Array([...u32(0x04034b50), ...u16(20), ...u16(0), ...u16(0),
+      ...u16(0), ...u16(0x21), ...u32(crc), ...u32(len), ...u32(len),
+      ...u16(nm.length), ...u16(0), ...nm]);
+    chunks.push(local, bytes);
+    central.push(new Uint8Array([...u32(0x02014b50), ...u16(20), ...u16(20), ...u16(0),
+      ...u16(0), ...u16(0), ...u16(0x21), ...u32(crc), ...u32(len), ...u32(len),
+      ...u16(nm.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0),
+      ...u32(off), ...nm]));
+    off += local.length + len;
+  }
+  const cdSize = central.reduce((n, c) => n + c.length, 0);
+  const end = new Uint8Array([...u32(0x06054b50), ...u16(0), ...u16(0),
+    ...u16(entries.length), ...u16(entries.length), ...u32(cdSize), ...u32(off), ...u16(0)]);
+  const all = [...chunks, ...central, end];
+  const out = new Uint8Array(all.reduce((n, c) => n + c.length, 0));
+  let q = 0; for (const c of all) { out.set(c, q); q += c.length; }
+  return out;
 }
 
 /* ---------- built-in finder: From / To panes (File System Access API) ----------

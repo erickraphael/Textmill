@@ -10,7 +10,7 @@ Pages can belong to several parts at once, and parts don't need to be contiguous
 
 ## Requirements & privacy
 
-Works best in Chrome or Edge; the folder features use the File System Access API, which Safari and Firefox don't support (exports fall back to your Downloads folder there). Everything runs in your browser — no document data ever leaves your machine. The only network access is loading two libraries (pdf.js and pdf-lib) from a CDN.
+Works best in Chrome or Edge; the folder features use the File System Access API, which Safari and Firefox don't support. There, exports land in your Downloads folder — one file at a time, or bundled into a single .zip if you'd rather. Everything runs in your browser — no document data ever leaves your machine. The only network access is loading two libraries (pdf.js and pdf-lib) from a CDN.
 
 ## Provenance
 
