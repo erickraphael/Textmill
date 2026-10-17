@@ -1429,10 +1429,38 @@ $("export").onclick = async () => {
 
 const idle = ms => new Promise(r => setTimeout(r, ms));
 
+/* A page's content may be an array of streams. Some scans carry entries that
+   draw nothing: zero-length streams, or references to objects that no longer
+   exist. The first kind is valid PDF, but a later macOS PDFKit save (a
+   highlight in Preview) rewrites it as an empty object, and poppler and PDF.js
+   abandon a page whose content list names a missing object -- every page goes
+   blank while the scan and text layer sit intact in the file. Copying pages is
+   otherwise lossless, so drop only entries that cannot contribute a mark:
+   streams with no bytes, and references that resolve to nothing. Anything
+   else that is not a stream is left alone: pdf-lib parses sequentially and
+   can misread an already-damaged file (one PDFKit has broken resolves its
+   content refs to page objects), and pruning on a misread view would delete
+   real content. A compressed stream is kept even if it inflates to nothing. */
+function pruneEmptyContents(doc, page) {
+  const contents = page.node.Contents();
+  if (!(contents instanceof PDFLib.PDFArray)) return 0;
+  let removed = 0;
+  for (let i = contents.size() - 1; i >= 0; i--) {
+    const obj = doc.context.lookup(contents.get(i));
+    const missing = obj === undefined || obj === PDFLib.PDFNull; // a singleton
+    const empty = obj instanceof PDFLib.PDFStream && obj.getContentsSize() === 0;
+    if (missing || empty) {
+      contents.remove(i);
+      removed++;
+    }
+  }
+  return removed;
+}
+
 async function buildPages(src, indices) {
   const out = await PDFLib.PDFDocument.create();
   const pages = await out.copyPages(src, indices);
-  pages.forEach(pg => out.addPage(pg));
+  pages.forEach(pg => { pruneEmptyContents(out, pg); out.addPage(pg); });
   return out.save();
 }
 
